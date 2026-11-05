@@ -74,6 +74,26 @@ else
   say "- no CHANGELOG.md (add one: a line per version)"
 fi
 
+# What the store shows: a README (required), an icon (512×512 PNG when there), screenshots
+# (PNG, when there), categories (recommended).
+[ -f "$dir/README.md" ] || fail "no README.md: the store shows it on the extension's page"
+if [ -f "$dir/icon.png" ]; then
+  w="$(sips -g pixelWidth "$dir/icon.png" | awk '/pixelWidth/ {print $2}')"
+  h="$(sips -g pixelHeight "$dir/icon.png" | awk '/pixelHeight/ {print $2}')"
+  [ "$w" = "512" ] && [ "$h" = "512" ] || fail "icon.png is ${w}×${h}; the store wants 512×512"
+  say "- icon: 512×512"
+else
+  say "- no icon.png (the store shows a generic one; add a 512×512 PNG)"
+fi
+if [ -d "$dir/screenshots" ]; then
+  for shot in "$dir"/screenshots/*; do
+    case "$shot" in *.png|*.jpg) ;; *) fail "screenshots/ holds $(basename "$shot"): PNG or JPEG only";; esac
+  done
+  say "- screenshots: $(ls "$dir/screenshots" | wc -l | tr -d ' ')"
+fi
+categories="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("categories",[])))' "$manifest")"
+[ "$categories" != "0" ] || say "- no categories (the store files it under Other; name up to three)"
+
 # Readable source only.
 if find "$dir" -type f \( -name '*.wasm' -o -name '*.a' -o -name '*.so' -o -name '*.dylib' -o -name '*.o' \) -not -path '*/node_modules/*' -not -path '*/dist/*' -not -path '*/build/*' -not -path '*/target/*' | grep -q .; then
   fail "prebuilt modules or binaries in the tree: CI builds from source only"

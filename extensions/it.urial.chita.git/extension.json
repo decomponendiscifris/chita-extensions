@@ -1,26 +1,85 @@
 {
   "id": "it.urial.chita.git",
   "name": "Git",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": "Chita",
   "description": "Shows what changed in a repository: a Git column with each item's state, a panel with the branch, what's ahead or behind and the last commit, and commands to stage, unstage, commit, fetch, pull, push, and see changes and history. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
   "module": "chita_git.wasm",
+  "categories": [
+    "Developer Tools"
+  ],
   "permissions": {
-    "files": [{ "path": "folder" }],
-    "tools": ["git"]
+    "files": [
+      {
+        "path": "folder"
+      }
+    ],
+    "tools": [
+      "git"
+    ]
   },
   "contributes": {
     "commands": [
-      { "id": "stage", "title": "Stage", "when": "selection" },
-      { "id": "unstage", "title": "Unstage", "when": "selection" },
-      { "id": "commit", "title": "Commit…", "when": "folder" },
-      { "id": "changes", "title": "Show Changes", "when": "folder" },
-      { "id": "history", "title": "Show History", "when": "folder" },
-      { "id": "fetch", "title": "Fetch", "when": "folder" },
-      { "id": "pull", "title": "Pull", "when": "folder" },
-      { "id": "push", "title": "Push", "when": "folder" }
+      {
+        "id": "stage",
+        "title": "Stage",
+        "description": "Adds the selected items to the next commit.",
+        "when": "selection"
+      },
+      {
+        "id": "unstage",
+        "title": "Unstage",
+        "description": "Takes the selected items out of the next commit.",
+        "when": "selection"
+      },
+      {
+        "id": "commit",
+        "title": "Commit…",
+        "description": "Commits what’s staged, asking for the message.",
+        "when": "folder"
+      },
+      {
+        "id": "changes",
+        "title": "Show Changes",
+        "description": "Shows the diff of what changed since the last commit.",
+        "when": "folder"
+      },
+      {
+        "id": "history",
+        "title": "Show History",
+        "description": "Shows the last commits of the repository.",
+        "when": "folder"
+      },
+      {
+        "id": "fetch",
+        "title": "Fetch",
+        "description": "Fetches from the configured upstream.",
+        "when": "folder"
+      },
+      {
+        "id": "pull",
+        "title": "Pull",
+        "description": "Pulls from the configured upstream.",
+        "when": "folder"
+      },
+      {
+        "id": "push",
+        "title": "Push",
+        "description": "Pushes to the configured upstream.",
+        "when": "folder"
+      }
     ],
-    "columns": [{ "id": "state", "title": "Git" }],
-    "panels": [{ "id": "repository", "title": "Git" }]
+    "columns": [
+      {
+        "id": "state",
+        "title": "Git"
+      }
+    ],
+    "panels": [
+      {
+        "id": "repository",
+        "title": "Git"
+      }
+    ]
   }
 }
