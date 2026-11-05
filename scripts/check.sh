@@ -11,6 +11,11 @@
 # tests. Everything goes to the job summary when there is one.
 set -euo pipefail
 
+if ! command -v cargo >/dev/null && [ -f "$HOME/.cargo/env" ]; then
+  # shellcheck disable=SC1091
+  . "$HOME/.cargo/env"
+fi
+
 root="$(cd "$(dirname "$0")/.." && pwd)"
 dir="${1:?an extension folder}"
 base="${2:-}"
@@ -50,16 +55,18 @@ esac
 network="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1])).get("permissions",{}).get("network",[])))' "$manifest")"
 [ "$network" = "0" ] || fail "network permissions aren't accepted yet (Chita doesn't broker the network for extensions)"
 
-# The version moved, and a changelog mentions it.
+# The version moved (when anything users get changed: not for the README or the changelog
+# alone), and a changelog mentions it.
 if [ -n "$base" ] && git -C "$root" cat-file -e "$base:$manifest" 2>/dev/null; then
   old="$(git -C "$root" show "$base:$manifest" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))')"
-  if [ "$old" = "$version" ]; then
+  shipped="$(git -C "$root" diff --name-only "$base" -- "$dir" | grep -v -E '/(README\.md|CHANGELOG\.md)$' || true)"
+  if [ "$old" = "$version" ] && [ -n "$shipped" ]; then
     fail "the version is still $version: bump it for every change users get"
   fi
   if [ "$(printf '%s\n%s\n' "$old" "$version" | sort -V | tail -1)" != "$version" ]; then
     fail "the version went from $old to $version: it must go up"
   fi
-  say "- version: $old → $version"
+  [ "$old" = "$version" ] || say "- version: $old → $version"
 fi
 if [ -f "$dir/CHANGELOG.md" ]; then
   grep -q "$version" "$dir/CHANGELOG.md" || fail "CHANGELOG.md doesn't mention $version"
