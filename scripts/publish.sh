@@ -25,32 +25,46 @@ version="$(field version)"
 name="$(field name)"
 tag="$id-$version"
 
-if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
-  echo "$tag is published already"
-  exit 0
-fi
-
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
-if [ -f "$dir/package.json" ] && [ ! -d "$dir/node_modules" ]; then
-  (cd "$dir" && npm ci --no-audit --no-fund)
-fi
-"$chita" ext build "$dir" --out "$out/dist"
-package="$out/$tag.chitaext"
-"$chita" ext pack "$out/dist" --key "$key" --out "$package"
-"$chita" ext check "$package"
-
-notes="$out/notes.md"
-if [ -f "$dir/CHANGELOG.md" ]; then
-  # The changelog's section for this version, up to the next heading.
-  awk -v v="$version" '
-    /^## / { on = index($0, v) > 0; if (on) next }
-    on { print }
-  ' "$dir/CHANGELOG.md" > "$notes"
-fi
-[ -s "$notes" ] || echo "$name $version." > "$notes"
-gh release create "$tag" "$package" --repo "$repo" --title "$name $version" --notes-file "$notes"
 url="https://github.com/$repo/releases/download/$tag/$tag.chitaext"
+package="$out/$tag.chitaext"
+
+# Already listed with this version: nothing to do. Released but not listed (a run that
+# stopped between the two): list what was released, never a new build.
+listed="$(python3 -c '
+import json, sys
+try:
+    c = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+print(next((e["version"] for e in c.get("extensions", []) if e["id"] == sys.argv[2]), ""))
+' "$site/catalog.json" "$id")"
+if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+  if [ "$listed" = "$version" ]; then
+    echo "$tag is published already"
+    exit 0
+  fi
+  echo "$tag is released but not listed: listing it"
+  gh release download "$tag" --repo "$repo" --dir "$out" --pattern "$tag.chitaext"
+else
+  if [ -f "$dir/package.json" ] && [ ! -d "$dir/node_modules" ]; then
+    (cd "$dir" && npm ci --no-audit --no-fund)
+  fi
+  "$chita" ext build "$dir" --out "$out/dist"
+  "$chita" ext pack "$out/dist" --key "$key" --out "$package"
+  notes="$out/notes.md"
+  if [ -f "$dir/CHANGELOG.md" ]; then
+    # The changelog's section for this version, up to the next heading.
+    awk -v v="$version" '
+      /^## / { on = index($0, v) > 0; if (on) next }
+      on { print }
+    ' "$dir/CHANGELOG.md" > "$notes"
+  fi
+  [ -s "$notes" ] || echo "$name $version." > "$notes"
+  gh release create "$tag" "$package" --repo "$repo" --title "$name $version" --notes-file "$notes"
+fi
+"$chita" ext check "$package"
 
 # Who contributed, from the folder's history (names; GitHub's noreply addresses carry the
 # login, taken when there).
