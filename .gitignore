@@ -5,3 +5,4 @@ build/
 *.chitaext
 .tool/
 .DS_Store
+site/
