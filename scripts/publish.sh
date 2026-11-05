@@ -13,7 +13,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 dir="${1:?an extension folder}"
 site="${2:?the pages checkout}"
 dir="${dir%/}"
-key="${STORE_KEY_FILE:?the store's key file}"
+key="${STORE_KEY_FILE:?the store key file}"
 chita="$("$root/scripts/tool.sh")"
 repo="decomponendiscifris/chita-extensions"
 
