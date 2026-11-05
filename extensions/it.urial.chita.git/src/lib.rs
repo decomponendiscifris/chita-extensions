@@ -1,24 +1,48 @@
 //! The Git extension: built on the same API as every extension (`chita-ext-sdk`). It runs
 //! the `git` on this Mac through Chita, in the folder being viewed, and shows what it says:
-//! a column with each item's state, a panel with the branch and the last commit, and
-//! commands to stage, unstage, commit, and see changes and history.
+//! a repository as a place (the header with the branch and the state, the Changes and
+//! Branches screens, the diff of what's selected in the Inspector), a column with each
+//! item's state, a panel, and commands to commit, fetch, pull, push and keep `.gitignore`.
 
 use chita_ext_sdk::{
-    ColumnArgument, CommandArgument, CommandResult, Panel, PanelArgument, Prompt, ToolOutput,
+    ColumnArgument, CommandArgument, CommandResult, Context, ContextArgument, Panel, PanelArgument,
+    Prompt, Screen, ScreenArgument, ToolOutput,
 };
 
+pub mod history;
+pub mod ignore;
+pub mod screens;
 pub mod status;
+use history::{Commit, Tag, Worktree};
+use screens::{Branch, DISCARD_KEEP_SECONDS, DISCARD_PREFIX, InProgress, Stash};
 use status::Status;
+
+thread_local! {
+    /// How many commits History shows; Show Older Commits doubles it (the module's memory
+    /// lives as long as the host does).
+    static HISTORY_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(200) };
+}
 
 chita_ext_sdk::extension! {
     command: run_command,
     column: column_texts,
     panel: show_panel,
+    context: describe_context,
+    screen: show_screen,
 }
 
 /// Runs git in the viewed folder.
 fn git(args: &[&str]) -> Result<ToolOutput, String> {
     chita_ext_sdk::run_tool("git", args)
+}
+
+/// Git's output when it succeeded, or why not.
+fn git_ok(args: &[&str]) -> Result<String, String> {
+    match git(args) {
+        Ok(out) if out.succeeded() => Ok(out.stdout),
+        Ok(out) => Err(failure(&out)),
+        Err(reason) => Err(reason),
+    }
 }
 
 /// The folder's status, and its path below the repository's root ("" at the root); `None`
@@ -34,6 +58,7 @@ fn repository() -> Option<(Status, String)> {
         "-z",
         "--branch",
         "--untracked-files=normal",
+        "--ignored=matching",
     ])
     .ok()?;
     if !out.succeeded() {
@@ -45,13 +70,79 @@ fn repository() -> Option<(Status, String)> {
     ))
 }
 
-/// The selected items as names relative to the viewed folder, for git's arguments.
-fn names(folder: Option<&str>, selection: &[String]) -> Vec<String> {
+/// The repository's root, from the viewed folder and its prefix below the root.
+fn root_of(folder: &str, prefix: &str) -> String {
+    let folder = folder.trim_end_matches('/');
+    let prefix = prefix.trim_end_matches('/');
+    if prefix.is_empty() {
+        folder.to_owned()
+    } else {
+        folder
+            .strip_suffix(prefix)
+            .map(|r| r.trim_end_matches('/').to_owned())
+            .unwrap_or_else(|| folder.to_owned())
+    }
+}
+
+/// A merge, rebase, cherry-pick or revert that stopped, when one did.
+fn in_progress() -> Option<InProgress> {
+    let present =
+        |name: &str| git(&["rev-parse", "-q", "--verify", name]).is_ok_and(|out| out.succeeded());
+    if present("REBASE_HEAD") {
+        Some(InProgress::Rebase)
+    } else if present("MERGE_HEAD") {
+        Some(InProgress::Merge)
+    } else if present("CHERRY_PICK_HEAD") {
+        Some(InProgress::CherryPick)
+    } else if present("REVERT_HEAD") {
+        Some(InProgress::Revert)
+    } else {
+        None
+    }
+}
+
+/// The stashes, newest first; discarded changes older than a week are dropped first.
+fn stashes() -> Vec<Stash> {
+    let list = |out: Result<ToolOutput, String>| match out {
+        Ok(out) if out.succeeded() => Stash::parse(&out.stdout),
+        _ => Vec::new(),
+    };
+    let format = "--format=%gd%x1f%gs%x1f%cr%x1f%ct";
+    let mut stashes = list(git(&["stash", "list", format]));
+    // The clock, from git: the committer time it would stamp now.
+    let now = git_ok(&["var", "GIT_COMMITTER_IDENT"])
+        .ok()
+        .and_then(|ident| {
+            ident
+                .split_whitespace()
+                .rev()
+                .nth(1)
+                .and_then(|t| t.parse::<i64>().ok())
+        })
+        .unwrap_or(0);
+    let expired: Vec<String> = stashes
+        .iter()
+        .filter(|s| s.is_discard() && now > 0 && now - s.time > DISCARD_KEEP_SECONDS)
+        .map(|s| s.id.clone())
+        .collect();
+    if !expired.is_empty() {
+        // Highest first: dropping one renumbers the ones after it.
+        for id in expired.iter().rev() {
+            let _ = git(&["stash", "drop", "-q", id]);
+        }
+        stashes = list(git(&["stash", "list", format]));
+    }
+    stashes
+}
+
+/// The selected items (or a screen's rows) as names relative to the viewed folder, for
+/// git's arguments.
+fn names(folder: Option<&str>, paths: &[String]) -> Vec<String> {
     let Some(folder) = folder else {
         return Vec::new();
     };
     let folder = folder.trim_end_matches('/');
-    selection
+    paths
         .iter()
         .filter_map(|path| {
             path.strip_prefix(folder)
@@ -62,13 +153,18 @@ fn names(folder: Option<&str>, selection: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// What a git that didn't succeed said, for a message.
+/// What a git that didn't succeed said, for a message: its error output, or its last lines
+/// (a merge reports its conflicts there), or just the status.
 fn failure(out: &ToolOutput) -> String {
     let said = out.stderr.trim();
-    if said.is_empty() {
+    if !said.is_empty() {
+        return said.lines().take(3).collect::<Vec<_>>().join("\n");
+    }
+    let printed: Vec<&str> = out.stdout.trim().lines().rev().take(3).collect();
+    if printed.is_empty() {
         format!("git ended with status {}", out.status)
     } else {
-        said.lines().take(3).collect::<Vec<_>>().join("\n")
+        printed.into_iter().rev().collect::<Vec<_>>().join("\n")
     }
 }
 
@@ -78,6 +174,15 @@ fn act(args: &[&str], names: &[String]) -> CommandResult {
     all.push("--");
     all.extend(names.iter().map(String::as_str));
     match git(&all) {
+        Ok(out) if out.succeeded() => CommandResult::nothing(),
+        Ok(out) => CommandResult::message(failure(&out)),
+        Err(reason) => CommandResult::message(reason),
+    }
+}
+
+/// Runs git with `args` (no names); a message when it fails, nothing when it succeeds.
+fn plain(args: &[&str]) -> CommandResult {
+    match git(args) {
         Ok(out) if out.succeeded() => CommandResult::nothing(),
         Ok(out) => CommandResult::message(failure(&out)),
         Err(reason) => CommandResult::message(reason),
@@ -150,25 +255,239 @@ fn needs_sign_in(stderr: &str) -> bool {
     .any(|s| stderr.contains(s))
 }
 
+// MARK: Commands
+
+/// The items a command applies to: a screen's rows when it came from one, else the
+/// selection.
+fn targets(argument: &CommandArgument) -> Vec<String> {
+    if argument.rows.is_empty() {
+        argument.selection.clone()
+    } else {
+        argument.rows.clone()
+    }
+}
+
 pub fn run_command(argument: CommandArgument) -> CommandResult {
-    let names = names(argument.folder.as_deref(), &argument.selection);
+    let folder = argument.folder.as_deref();
+    let targets = targets(&argument);
+    let names = names(folder, &targets);
+    let input = argument
+        .input
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
     match argument.command.as_str() {
-        "stage" => act(&["add"], &names),
-        "unstage" => act(&["restore", "--staged"], &names),
-        "commit" => match argument.input.as_deref().map(str::trim) {
-            None | Some("") => CommandResult::prompt(Prompt {
-                title: "Commit".into(),
-                message: "Commits what is staged.".into(),
-                placeholder: "What changed, and why".into(),
-                action: "Commit".into(),
-            }),
-            Some(message) => match git(&["commit", "-m", message]) {
-                Ok(out) if out.succeeded() => CommandResult::message(
-                    out.stdout.lines().next().unwrap_or("Committed.").to_owned(),
-                ),
+        "stage" => act(
+            &["add"],
+            &if names.is_empty() {
+                vec![".".into()]
+            } else {
+                names
+            },
+        ),
+        "unstage" => act(
+            &["restore", "--staged"],
+            &if names.is_empty() {
+                vec![".".into()]
+            } else {
+                names
+            },
+        ),
+        "resolve" => act(
+            &["add"],
+            &if names.is_empty() {
+                vec![".".into()]
+            } else {
+                names
+            },
+        ),
+        "discard" => discard(&names, &targets),
+        "undo-discard" => undo_discard(),
+        "commit" => commit(input),
+        "identity-name" => identity("user.name", input, "commit"),
+        "identity-email" => identity("user.email", input, "commit"),
+        "amend" => amend(input),
+        "continue" | "abort" => match in_progress() {
+            Some(what) => plain(&[what.subcommand(), &format!("--{}", argument.command)]),
+            None => CommandResult::message("Nothing is in progress."),
+        },
+        "stash-save" => match input {
+            None => CommandResult::prompt(
+                Prompt::line(
+                    "Stash",
+                    "Puts every change away, to bring back later.",
+                    "Stash",
+                )
+                .placeholder("What it is (optional)"),
+            ),
+            Some(message) => plain(&["stash", "push", "-u", "-m", message]),
+        },
+        "stash-pop" | "stash-apply" | "stash-drop" => {
+            let Some(id) = targets.first() else {
+                return CommandResult::message("Choose a stash first.");
+            };
+            let verb = &argument.command["stash-".len()..];
+            if verb == "drop" {
+                plain(&["stash", "drop", "-q", id])
+            } else {
+                plain(&["stash", verb, id])
+            }
+        }
+        "checkout" => match targets.first().and_then(|id| id.split_once(':')) {
+            Some(("remote", name)) => {
+                let local = name.split_once('/').map(|(_, b)| b).unwrap_or(name);
+                plain(&["switch", local])
+            }
+            Some(("tag", name)) => plain(&["switch", "--detach", name]),
+            Some((_, name)) => plain(&["switch", name]),
+            None => CommandResult::message("Choose a branch first."),
+        },
+        "new-branch" => match input {
+            None => CommandResult::prompt(
+                Prompt::line(
+                    "New Branch",
+                    "Made from the current commit, and checked out.",
+                    "Create",
+                )
+                .placeholder("feature/name"),
+            ),
+            Some(name) => plain(&["switch", "-c", name]),
+        },
+        "delete-branch" => match targets.first().and_then(|id| id.strip_prefix("local:")) {
+            Some(name) => match git(&["branch", "-d", name]) {
+                Ok(out) if out.succeeded() => CommandResult::nothing(),
+                Ok(out) if out.stderr.contains("not fully merged") => {
+                    CommandResult::message(format!(
+                        "{name} has commits that aren\u{2019}t merged anywhere. Merge it first, or delete it from Terminal with git branch -D."
+                    ))
+                }
                 Ok(out) => CommandResult::message(failure(&out)),
                 Err(reason) => CommandResult::message(reason),
             },
+            None => CommandResult::message("Choose a branch first."),
+        },
+        "merge" => match targets.first().and_then(|id| id.split_once(':')) {
+            Some((_, name)) => plain(&["merge", "--no-edit", name]),
+            None => CommandResult::message("Choose a branch first."),
+        },
+        "diff" => diff(folder, &targets),
+        "history-more" => {
+            HISTORY_LIMIT.with(|l| l.set(l.get() * 2));
+            CommandResult::nothing()
+        }
+        "commit-show" => match targets.first() {
+            Some(hash) => match git_ok(&["show", "--stat", "--patch", "--format=%h %s%n%an <%ae> \u{00B7} %cd%n%n%b", hash]) {
+                Ok(text) => CommandResult::diff(hash.chars().take(7).collect::<String>(), text),
+                Err(reason) => CommandResult::message(reason),
+            },
+            None => CommandResult::nothing(),
+        },
+        "checkout-commit" => match targets.first() {
+            Some(hash) => plain(&["switch", "--detach", hash]),
+            None => CommandResult::message("Choose a commit first."),
+        },
+        "branch-here" => match (targets.first(), input) {
+            (Some(_), None) => CommandResult::prompt(
+                Prompt::line("New Branch Here", "Made from this commit, and checked out.", "Create")
+                    .placeholder("feature/name"),
+            ),
+            (Some(hash), Some(name)) => plain(&["switch", "-c", name, hash]),
+            (None, _) => CommandResult::message("Choose a commit first."),
+        },
+        "cherry-pick" => match targets.first() {
+            Some(hash) => plain(&["cherry-pick", hash]),
+            None => CommandResult::message("Choose a commit first."),
+        },
+        "revert" => match targets.first() {
+            Some(hash) => plain(&["revert", "--no-edit", hash]),
+            None => CommandResult::message("Choose a commit first."),
+        },
+        "tag-new" | "tag-here" => match input {
+            None => CommandResult::prompt(
+                Prompt::line(
+                    "New Tag",
+                    if argument.command == "tag-here" { "On this commit." } else { "On the current commit." },
+                    "Tag",
+                )
+                .placeholder("v1.0"),
+            ),
+            Some(name) => {
+                let mut args = vec!["tag", "-a", name, "-m", name];
+                if argument.command == "tag-here"
+                    && let Some(hash) = targets.first()
+                {
+                    args.push(hash);
+                }
+                plain(&args)
+            }
+        },
+        "tag-delete" => match targets.first().and_then(|id| id.strip_prefix("tag:")) {
+            Some(name) => plain(&["tag", "-d", name]),
+            None => CommandResult::message("Choose a tag first."),
+        },
+        "worktree-add" => match input {
+            None => CommandResult::prompt(
+                Prompt::line(
+                    "Add Worktree",
+                    "A branch checked out in a folder of its own, next to this repository (../<repository>-<branch>). A branch that doesn\u{2019}t exist is made.",
+                    "Add",
+                )
+                .placeholder("feature/name"),
+            ),
+            Some(branch) => {
+                let folder = argument.folder.as_deref().unwrap_or("");
+                let name = folder.trim_end_matches('/').rsplit('/').next().unwrap_or("repo");
+                let leaf = branch.replace('/', "-");
+                let path = format!("../{name}-{leaf}");
+                let exists = git(&["rev-parse", "-q", "--verify", &format!("refs/heads/{branch}")])
+                    .is_ok_and(|out| out.succeeded());
+                if exists {
+                    plain(&["worktree", "add", &path, branch])
+                } else {
+                    plain(&["worktree", "add", "-b", branch, &path])
+                }
+            }
+        },
+        "worktree-remove" => match targets.first() {
+            Some(path) => {
+                // By its path next to the repository (git reports it resolved, the viewed
+                // folder may not be: matched by the parent's name), or inside it.
+                let folder = argument.folder.as_deref().unwrap_or("").trim_end_matches('/');
+                let path = path.trim_end_matches('/');
+                let (path_parent, leaf) = path.rsplit_once('/').unwrap_or(("", path));
+                let same_parent = |a: &str, b: &str| {
+                    a.rsplit('/').next().unwrap_or(a) == b.rsplit('/').next().unwrap_or(b)
+                };
+                let folder_parent = folder.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+                let relative = if let Some(inside) = path.strip_prefix(&format!("{folder}/")) {
+                    Some(inside.to_owned())
+                } else if !leaf.is_empty() && same_parent(path_parent, folder_parent) {
+                    Some(format!("../{leaf}"))
+                } else {
+                    None
+                };
+                match relative {
+                    Some(relative) => plain(&["worktree", "remove", &relative]),
+                    None => CommandResult::message(
+                        "That worktree isn\u{2019}t next to this repository; remove it from Terminal.",
+                    ),
+                }
+            }
+            None => CommandResult::message("Choose a worktree first."),
+        },
+        "branch-log" => match targets.first().and_then(|id| id.split_once(':')) {
+            Some((_, name)) => {
+                match git_ok(&["log", "--format=%h  %s  (%cr, %an)", "-n", "40", name]) {
+                    Ok(text) if text.trim().is_empty() => CommandResult::message("No commits."),
+                    Ok(text) => CommandResult {
+                        output: Some(text),
+                        title: Some(name.to_owned()),
+                        ..Default::default()
+                    },
+                    Err(reason) => CommandResult::message(reason),
+                }
+            }
+            None => CommandResult::nothing(),
         },
         "changes" => {
             // Everything since the last commit, staged or not; before the first commit,
@@ -184,9 +503,293 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
         "fetch" => reach(&["fetch"]),
         "pull" => reach(&["pull"]),
         "push" => reach(&["push"]),
+        "ignore" => ignore(&names, &targets, ".gitignore"),
+        "ignore-local" => ignore(&names, &targets, ".git/info/exclude"),
+        "ignore-ext" => {
+            let lines: Vec<String> = names
+                .iter()
+                .filter_map(|n| ignore::pattern_for_kind(n))
+                .collect();
+            if lines.is_empty() {
+                return CommandResult::message("The selected items have no extension to ignore.");
+            }
+            add_ignore_lines(".gitignore", &lines)
+        }
+        "untrack" => {
+            let mut all = vec!["rm", "-r", "--cached", "-q", "--"];
+            all.extend(names.iter().map(String::as_str));
+            match git(&all) {
+                Ok(out) if out.succeeded() => ignore(&names, &targets, ".gitignore"),
+                Ok(out) => CommandResult::message(failure(&out)),
+                Err(reason) => CommandResult::message(reason),
+            }
+        }
+        "edit-ignore" => match input {
+            None => {
+                let current = chita_ext_sdk::read_file(".gitignore")
+                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                    .unwrap_or_default();
+                CommandResult::prompt(
+                    Prompt::line(
+                        ".gitignore",
+                        "One pattern per line: a name, /name for this folder only, name/ for a folder, *.ext for a kind of file, # for a note.",
+                        "Save",
+                    )
+                    .editor(current),
+                )
+            }
+            Some(_) => {
+                let text = argument.input.unwrap_or_default();
+                let text = if text.ends_with('\n') {
+                    text
+                } else {
+                    format!("{text}\n")
+                };
+                match chita_ext_sdk::write_file(".gitignore", text.as_bytes()) {
+                    Ok(()) => CommandResult::nothing(),
+                    Err(reason) => CommandResult::message(reason),
+                }
+            }
+        },
         other => CommandResult::message(format!("The Git extension has no command {other}.")),
     }
 }
+
+/// Discards the changes to `names`: put away in a stash named after them (kept a week,
+/// brought back by Undo Discard), which also takes them out of the working tree.
+fn discard(names: &[String], targets: &[String]) -> CommandResult {
+    let what = if names.is_empty() {
+        "everything".to_owned()
+    } else {
+        let shown: Vec<&str> = targets
+            .iter()
+            .map(|t| t.rsplit('/').next().unwrap_or(t))
+            .take(5)
+            .collect();
+        let mut text = shown.join(", ");
+        if targets.len() > 5 {
+            text.push_str(&format!(" and {} more", targets.len() - 5));
+        }
+        text
+    };
+    let message = format!("{DISCARD_PREFIX}{what}");
+    let mut all = vec!["stash", "push", "-u", "-q", "-m", &message, "--"];
+    if names.is_empty() {
+        all.push(".");
+    } else {
+        all.extend(names.iter().map(String::as_str));
+    }
+    plain(&all)
+}
+
+/// Brings back what Discard put away last.
+fn undo_discard() -> CommandResult {
+    match stashes().into_iter().find(Stash::is_discard) {
+        Some(stash) => match git(&["stash", "pop", "-q", &stash.id]) {
+            Ok(out) if out.succeeded() => CommandResult::nothing(),
+            Ok(out) => CommandResult::message(format!(
+                "{}\n\nThe discarded changes are still in the stash {}.",
+                failure(&out),
+                stash.id
+            )),
+            Err(reason) => CommandResult::message(reason),
+        },
+        None => CommandResult::message("Nothing was discarded lately."),
+    }
+}
+
+/// Commit…: the name and address first when the repository has none, then the message.
+fn commit(input: Option<&str>) -> CommandResult {
+    match input {
+        None => {
+            if let Some(prompt) = identity_missing() {
+                return CommandResult::prompt(prompt);
+            }
+            CommandResult::prompt(
+                Prompt::line("Commit", "Commits what is staged.", "Commit")
+                    .placeholder("What changed, and why"),
+            )
+        }
+        Some(message) => match git(&["commit", "-m", message]) {
+            Ok(out) if out.succeeded() => {
+                CommandResult::message(out.stdout.lines().next().unwrap_or("Committed.").to_owned())
+            }
+            Ok(out) => CommandResult::message(failure(&out)),
+            Err(reason) => CommandResult::message(reason),
+        },
+    }
+}
+
+/// Amend…: the last commit again with a new message (what's staged goes in too).
+fn amend(input: Option<&str>) -> CommandResult {
+    match input {
+        None => {
+            let last = git_ok(&["log", "-1", "--format=%s"]).unwrap_or_default();
+            CommandResult::prompt(
+                Prompt::line(
+                    "Amend",
+                    "Replaces the last commit with its message changed and what\u{2019}s staged added. Not for commits already pushed.",
+                    "Amend",
+                )
+                .placeholder("The message")
+                .editor(last.trim_end()),
+            )
+        }
+        Some(message) => plain(&["commit", "--amend", "-m", message]),
+    }
+}
+
+/// The prompt for what the repository lacks about the user, when it lacks something.
+fn identity_missing() -> Option<Prompt> {
+    let missing =
+        |key: &str| git(&["config", "--get", key]).is_ok_and(|out| out.stdout.trim().is_empty());
+    if missing("user.name") {
+        Some(
+            Prompt::line(
+                "Your name for commits",
+                "This repository doesn\u{2019}t know who commits. The name goes into every commit you make here.",
+                "Next",
+            )
+            .placeholder("Name Surname")
+            .next("identity-name"),
+        )
+    } else if missing("user.email") {
+        Some(
+            Prompt::line(
+                "Your email for commits",
+                "The address goes into every commit you make here.",
+                "Save",
+            )
+            .placeholder("you@example.com")
+            .next("identity-email"),
+        )
+    } else {
+        None
+    }
+}
+
+/// Sets `key` for the repository from the prompt's answer, then goes on to `then`.
+fn identity(key: &str, input: Option<&str>, then: &str) -> CommandResult {
+    let Some(value) = input else {
+        return CommandResult::nothing();
+    };
+    if let Err(reason) = git_ok(&["config", "--local", key, value]) {
+        return CommandResult::message(reason);
+    }
+    match identity_missing() {
+        Some(prompt) => CommandResult::prompt(prompt),
+        None => match then {
+            "commit" => commit(None),
+            _ => CommandResult::nothing(),
+        },
+    }
+}
+
+/// What the Inspector shows for the rows selected in Changes: the diff of files, a stash's
+/// diff, nothing for a mix.
+fn diff(folder: Option<&str>, targets: &[String]) -> CommandResult {
+    let Some(first) = targets.first() else {
+        return CommandResult::nothing();
+    };
+    if first.starts_with("stash@") {
+        return match git_ok(&["stash", "show", "-p", "--include-untracked", first]) {
+            Ok(text) => CommandResult::diff(first.clone(), text),
+            Err(reason) => CommandResult::message(reason),
+        };
+    }
+    let names = names(folder, targets);
+    if names.is_empty() {
+        return CommandResult::nothing();
+    }
+    let title = if names.len() == 1 {
+        names[0].clone()
+    } else {
+        format!("{} files", names.len())
+    };
+    // Everything since the last commit, staged or not (before the first commit, what's
+    // staged), and untracked files whole.
+    let mut text = String::new();
+    let mut tracked = vec!["diff", "HEAD", "--"];
+    tracked.extend(names.iter().map(String::as_str));
+    match git(&tracked) {
+        Ok(out) if out.succeeded() => text.push_str(&out.stdout),
+        _ => {
+            let mut cached = vec!["diff", "--cached", "--"];
+            cached.extend(names.iter().map(String::as_str));
+            if let Ok(out) = git(&cached) {
+                text.push_str(&out.stdout);
+            }
+        }
+    }
+    for name in &names {
+        if text.contains(&format!("diff --git a/{name}")) || text.contains(&format!(" b/{name}\n"))
+        {
+            continue;
+        }
+        if let Ok(bytes) = chita_ext_sdk::read_file(name) {
+            if bytes.contains(&0) {
+                text.push_str(&format!(
+                    "diff --git a/{name} b/{name}\nBinary file {name} ({} bytes)\n",
+                    bytes.len()
+                ));
+                continue;
+            }
+            let body = String::from_utf8_lossy(&bytes);
+            let count = body.lines().count();
+            text.push_str(&format!(
+                "diff --git a/{name} b/{name}\nnew file\n--- /dev/null\n+++ b/{name}\n@@ -0,0 +1,{count} @@\n"
+            ));
+            for line in body.lines() {
+                text.push('+');
+                text.push_str(line);
+                text.push('\n');
+            }
+        }
+    }
+    if text.trim().is_empty() {
+        CommandResult::message("No changes.")
+    } else {
+        CommandResult::diff(title, text)
+    }
+}
+
+/// Adds the patterns for `names` to `file` (`.gitignore` of the viewed folder, or the
+/// repository's own exclude file when viewing its root).
+fn ignore(names: &[String], targets: &[String], file: &str) -> CommandResult {
+    let lines: Vec<String> = names
+        .iter()
+        .zip(targets)
+        .map(|(name, target)| ignore::pattern_for(name, target.ends_with('/') || is_folder(name)))
+        .collect();
+    if lines.is_empty() {
+        return CommandResult::message("Select something in the folder first.");
+    }
+    add_ignore_lines(file, &lines)
+}
+
+/// Whether `name` (relative to the viewed folder) is a folder, as the listing says.
+fn is_folder(name: &str) -> bool {
+    let (parent, leaf) = name.rsplit_once('/').unwrap_or((".", name));
+    chita_ext_sdk::list_folder(parent)
+        .map(|entries| entries.iter().any(|e| e.name == leaf && e.is_folder))
+        .unwrap_or(false)
+}
+
+fn add_ignore_lines(file: &str, lines: &[String]) -> CommandResult {
+    let current = chita_ext_sdk::read_file(file)
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default();
+    let text = ignore::with_lines(&current, lines);
+    if text == current {
+        return CommandResult::nothing();
+    }
+    match chita_ext_sdk::write_file(file, text.as_bytes()) {
+        Ok(()) => CommandResult::nothing(),
+        Err(reason) => CommandResult::message(reason),
+    }
+}
+
+// MARK: The column, the panel, the context, the screens
 
 pub fn column_texts(argument: ColumnArgument) -> Vec<String> {
     match repository() {
@@ -223,4 +826,83 @@ pub fn show_panel(_argument: PanelArgument) -> Panel {
         panel = panel.row("Last commit", format!("{hash} {subject} \u{00B7} {when}"));
     }
     panel
+}
+
+pub fn describe_context(_argument: ContextArgument) -> Context {
+    let Some((status, _)) = repository() else {
+        return Context::inactive();
+    };
+    screens::context(&status, in_progress(), &stashes())
+}
+
+pub fn show_screen(argument: ScreenArgument) -> Screen {
+    let Some((status, prefix)) = repository() else {
+        return Screen::new().empty("Not a repository.");
+    };
+    match argument.screen.as_str() {
+        "changes" => {
+            let root = root_of(argument.folder.as_deref().unwrap_or(""), &prefix);
+            screens::changes(&status, &root, in_progress(), &stashes())
+        }
+        "branches" => {
+            let list = git_ok(&[
+                "for-each-ref",
+                // Tabs between the fields (for-each-ref knows no escapes): nothing but the
+                // subject can hold one, and it's parsed from both ends.
+                "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream:track)\t%(committerdate:relative)\t%(subject)\t%(refname)",
+                "refs/heads",
+                "refs/remotes",
+            ])
+            .map(|out| Branch::parse(&out))
+            .unwrap_or_default();
+            let mut screen = screens::branches(&list);
+            let tags = git_ok(&[
+                "for-each-ref",
+                "--sort=-creatordate",
+                "--format=%(refname:short)\t%(creatordate:relative)\t%(subject)",
+                "refs/tags",
+            ])
+            .map(|out| Tag::parse(&out))
+            .unwrap_or_default();
+            if !tags.is_empty() {
+                screen = screen.section(history::tags(&tags));
+            }
+            screen
+        }
+        "history" => {
+            let limit = HISTORY_LIMIT.with(std::cell::Cell::get);
+            let count = (limit + 1).to_string();
+            let commits = git_ok(&[
+                "log",
+                "--format=%H%x1f%h%x1f%P%x1f%an%x1f%cr%x1f%D%x1f%s",
+                "--date-order",
+                "-n",
+                &count,
+                "--all",
+            ])
+            .map(|out| Commit::parse(&out))
+            .unwrap_or_default();
+            let more = commits.len() > limit;
+            history::history(&commits[..commits.len().min(limit)], more)
+        }
+        "worktrees" => {
+            let list = git_ok(&["worktree", "list", "--porcelain"])
+                .map(|out| Worktree::parse(&out))
+                .unwrap_or_default();
+            history::worktrees(&list)
+        }
+        other => Screen::new().empty(format!("The Git extension has no screen {other}.")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_root_comes_from_the_folder_and_the_prefix() {
+        assert_eq!(root_of("/r/sub/deep", "sub/deep/"), "/r");
+        assert_eq!(root_of("/r", ""), "/r");
+        assert_eq!(root_of("/r/", ""), "/r");
+    }
 }

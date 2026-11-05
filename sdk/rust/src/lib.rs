@@ -5,9 +5,12 @@
 //! Chita, which answers from what the user granted ([`ask`], [`read_file`], [`list_folder`],
 //! [`run_tool`]). Chita calls into it for what its manifest contributes: a command
 //! (`command`, with a [`CommandArgument`], giving back a [`CommandResult`]), a column
-//! (`column`, [`ColumnArgument`] → one text per path) and a panel (`panel`,
-//! [`PanelArgument`] → [`Panel`]). The [`extension!`] macro writes those entry points and the
-//! memory function the host needs, from plain Rust functions.
+//! (`column`, [`ColumnArgument`] → one text per path), a panel (`panel`,
+//! [`PanelArgument`] → [`Panel`]), a context it owns (`context`, [`ContextArgument`] →
+//! [`Context`]: the header's line and actions for a kind of folder, a git repository) and a
+//! screen of it (`screen`, [`ScreenArgument`] → [`Screen`]: sections of rows with actions,
+//! drawn by Chita in place of the file list). The [`extension!`] macro writes those entry
+//! points and the memory function the host needs, from plain Rust functions.
 //!
 //! Natively (tests), nothing is imported: [`testing::answer_with`] installs what answers the
 //! asks, and [`testing::logged`] / [`testing::taken`] show what the extension logged and gave
@@ -28,6 +31,8 @@ pub mod protocol {
         ListFolder { path: String },
         /// A tool from the manifest, run in the viewed folder.
         RunTool { tool: String, args: Vec<String> },
+        /// Writes a file whole, where the manifest's grant says `write`.
+        WriteFile { path: String, contents: Vec<u8> },
     }
 
     /// Chita's answer.
@@ -36,6 +41,7 @@ pub mod protocol {
         File {
             contents: Vec<u8>,
         },
+        Written {},
         Folder {
             entries: Vec<Entry>,
         },
@@ -92,6 +98,12 @@ pub struct CommandArgument {
     /// What the user typed, when the command asked for it with a [`Prompt`] the time before.
     #[serde(default)]
     pub input: Option<String>,
+    /// The screen the command came from, when it did (an action of a row, a section or the
+    /// toolbar), and the rows it applies to (their ids).
+    #[serde(default)]
+    pub screen: Option<String>,
+    #[serde(default)]
+    pub rows: Vec<String>,
 }
 
 /// What a command gives back: a short message (shown as an alert), output (shown in full),
@@ -104,6 +116,12 @@ pub struct CommandResult {
     pub output: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<Prompt>,
+    /// A unified diff, shown coloured (the Inspector, for a screen's selection).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
+    /// A title for the output or the diff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 impl CommandResult {
@@ -128,13 +146,22 @@ impl CommandResult {
         }
     }
 
+    /// A diff to show (the Inspector).
+    pub fn diff(title: impl Into<String>, text: impl Into<String>) -> Self {
+        CommandResult {
+            diff: Some(text.into()),
+            title: Some(title.into()),
+            ..Default::default()
+        }
+    }
+
     /// Nothing to show.
     pub fn nothing() -> Self {
         Self::default()
     }
 }
 
-/// One line of text asked of the user.
+/// Text asked of the user: one line, or a text (`multiline`) with something to start from.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Prompt {
     pub title: String,
@@ -145,6 +172,348 @@ pub struct Prompt {
     /// The button, "OK" when empty.
     #[serde(default)]
     pub action: String,
+    /// A text editor instead of one line (a file's contents).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multiline: bool,
+    /// What the field holds to begin with.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub initial: String,
+    /// The command the answer goes to (as its `input`); the same command when empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub next: String,
+}
+
+impl Prompt {
+    pub fn line(
+        title: impl Into<String>,
+        message: impl Into<String>,
+        action: impl Into<String>,
+    ) -> Prompt {
+        Prompt {
+            title: title.into(),
+            message: message.into(),
+            action: action.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn placeholder(mut self, text: impl Into<String>) -> Self {
+        self.placeholder = text.into();
+        self
+    }
+
+    /// A text editor, starting from `initial`.
+    pub fn editor(mut self, initial: impl Into<String>) -> Self {
+        self.multiline = true;
+        self.initial = initial.into();
+        self
+    }
+
+    /// The answer goes to another command.
+    pub fn next(mut self, command: impl Into<String>) -> Self {
+        self.next = command.into();
+        self
+    }
+}
+
+// MARK: Contexts and screens
+
+/// What `context` gets: which context, where the user is.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContextArgument {
+    pub context: String,
+    #[serde(default)]
+    pub folder: Option<String>,
+    #[serde(default)]
+    pub selection: Vec<String>,
+}
+
+/// What the header shows for a context: whether the folder is one at all, a title line (the
+/// branch), a subtitle (the state), the actions, and badges on the screens (a count).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Context {
+    pub active: bool,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub subtitle: String,
+    #[serde(default)]
+    pub actions: Vec<Action>,
+    /// Screen id → text on its segment ("3").
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub badges: std::collections::BTreeMap<String, String>,
+}
+
+impl Context {
+    /// Not this kind of folder after all.
+    pub fn inactive() -> Context {
+        Context::default()
+    }
+
+    pub fn active(title: impl Into<String>) -> Context {
+        Context {
+            active: true,
+            title: title.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn subtitle(mut self, text: impl Into<String>) -> Self {
+        self.subtitle = text.into();
+        self
+    }
+
+    pub fn action(mut self, action: Action) -> Self {
+        self.actions.push(action);
+        self
+    }
+
+    pub fn badge(mut self, screen: impl Into<String>, text: impl Into<String>) -> Self {
+        self.badges.insert(screen.into(), text.into());
+        self
+    }
+}
+
+/// A button: in the header, a screen's toolbar, a section, or a row. Pressed, Chita calls
+/// `command` with the action's `id` (and, from a screen, the screen and the rows).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Action {
+    pub id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub symbol: String,
+    /// "default", "prominent" (the one to press) or "destructive" (red; asks first when
+    /// `confirm` says what).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub style: String,
+    /// The question asked before, for a destructive action.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub confirm: String,
+}
+
+impl Action {
+    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Action {
+        Action {
+            id: id.into(),
+            title: title.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn symbol(mut self, name: impl Into<String>) -> Self {
+        self.symbol = name.into();
+        self
+    }
+
+    pub fn prominent(mut self) -> Self {
+        self.style = "prominent".into();
+        self
+    }
+
+    pub fn destructive(mut self, confirm: impl Into<String>) -> Self {
+        self.style = "destructive".into();
+        self.confirm = confirm.into();
+        self
+    }
+}
+
+/// What `screen` gets: which screen, where the user is, what's selected in the list.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenArgument {
+    pub screen: String,
+    #[serde(default)]
+    pub folder: Option<String>,
+    #[serde(default)]
+    pub selection: Vec<String>,
+}
+
+/// A screen: sections of rows, drawn by Chita in place of the file list, with a toolbar, a
+/// search over the rows (Chita's), a selection, and the Inspector showing what `inspector`
+/// (a command id) gives back for the selected rows (a diff, output).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Screen {
+    #[serde(default)]
+    pub toolbar: Vec<Action>,
+    #[serde(default)]
+    pub sections: Vec<Section>,
+    /// Shown when there are no rows at all.
+    #[serde(default)]
+    pub empty: String,
+    /// "single" (the default), "multiple" or "none".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub selection: String,
+    /// The command Chita calls for the selected rows, whose result the Inspector shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inspector: Option<String>,
+}
+
+impl Screen {
+    pub fn new() -> Screen {
+        Screen::default()
+    }
+
+    pub fn toolbar(mut self, action: Action) -> Self {
+        self.toolbar.push(action);
+        self
+    }
+
+    pub fn section(mut self, section: Section) -> Self {
+        self.sections.push(section);
+        self
+    }
+
+    pub fn empty(mut self, text: impl Into<String>) -> Self {
+        self.empty = text.into();
+        self
+    }
+
+    pub fn multiple(mut self) -> Self {
+        self.selection = "multiple".into();
+        self
+    }
+
+    pub fn inspector(mut self, command: impl Into<String>) -> Self {
+        self.inspector = Some(command.into());
+        self
+    }
+
+    pub fn rows(&self) -> usize {
+        self.sections.iter().map(|s| s.rows.len()).sum()
+    }
+}
+
+/// A section of a screen: a title, rows, and actions on the section as a whole.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Section {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub rows: Vec<ScreenRow>,
+    #[serde(default)]
+    pub actions: Vec<Action>,
+}
+
+impl Section {
+    pub fn new(id: impl Into<String>, title: impl Into<String>) -> Section {
+        Section {
+            id: id.into(),
+            title: title.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn row(mut self, row: ScreenRow) -> Self {
+        self.rows.push(row);
+        self
+    }
+
+    pub fn action(mut self, action: Action) -> Self {
+        self.actions.push(action);
+        self
+    }
+}
+
+/// A row: a title, a subtitle, an icon (an SF Symbol in a colour, or the file at `path`), a
+/// badge, its actions (in its menu and on hover), and the `primary` one (double-click,
+/// Return).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenRow {
+    pub id: String,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub subtitle: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub symbol: String,
+    /// "red", "orange", "yellow", "green", "blue", "purple", "gray" or "accent".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub color: String,
+    /// A file: Chita shows its icon, and Reveal in the row's menu.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub path: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub badge: String,
+    #[serde(default)]
+    pub actions: Vec<Action>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub primary: String,
+    /// A folder on this Mac: Chita offers Open (here, or in a new tab), and opens it on a
+    /// double click when there's no primary action.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub folder: String,
+    /// Its place in a graph of rows (a commit history): drawn before the icon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph: Option<GraphCell>,
+}
+
+/// A row's cell of a graph: lanes are columns, numbered from 0. The row's own dot sits in
+/// `lane`; `above` are the lines from the row above (lane there → lane here, where a line
+/// may bend into this row's lane), `below` the lines to the row below.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphCell {
+    pub lane: u32,
+    #[serde(default)]
+    pub above: Vec<(u32, u32)>,
+    #[serde(default)]
+    pub below: Vec<(u32, u32)>,
+}
+
+impl ScreenRow {
+    pub fn new(id: impl Into<String>, title: impl Into<String>) -> ScreenRow {
+        ScreenRow {
+            id: id.into(),
+            title: title.into(),
+            ..Default::default()
+        }
+    }
+
+    /// A row for a file (its icon, Reveal), with its full `path`.
+    pub fn file(path: impl Into<String>, title: impl Into<String>) -> ScreenRow {
+        let path = path.into();
+        ScreenRow {
+            id: path.clone(),
+            title: title.into(),
+            path,
+            ..Default::default()
+        }
+    }
+
+    pub fn subtitle(mut self, text: impl Into<String>) -> Self {
+        self.subtitle = text.into();
+        self
+    }
+
+    pub fn symbol(mut self, name: impl Into<String>, color: impl Into<String>) -> Self {
+        self.symbol = name.into();
+        self.color = color.into();
+        self
+    }
+
+    pub fn badge(mut self, text: impl Into<String>) -> Self {
+        self.badge = text.into();
+        self
+    }
+
+    pub fn action(mut self, action: Action) -> Self {
+        self.actions.push(action);
+        self
+    }
+
+    /// The action for a double click or Return.
+    pub fn primary(mut self, id: impl Into<String>) -> Self {
+        self.primary = id.into();
+        self
+    }
+
+    /// A folder on this Mac the row stands for.
+    pub fn folder(mut self, path: impl Into<String>) -> Self {
+        self.folder = path.into();
+        self
+    }
+
+    pub fn graph(mut self, cell: GraphCell) -> Self {
+        self.graph = Some(cell);
+        self
+    }
 }
 
 /// What a column gets: the column's id, the folder, and the paths to give a text for.
@@ -231,6 +600,18 @@ pub fn list_folder(path: &str) -> Result<Vec<Entry>, String> {
         path: path.to_owned(),
     }) {
         Answer::Folder { entries } => Ok(entries),
+        Answer::Refused { reason } => Err(reason),
+        other => Err(format!("unexpected answer: {other:?}")),
+    }
+}
+
+/// Writes a file whole (the manifest's grant must say `write`), or says why not.
+pub fn write_file(path: &str, contents: &[u8]) -> Result<(), String> {
+    match ask(&Ask::WriteFile {
+        path: path.to_owned(),
+        contents: contents.to_vec(),
+    }) {
+        Answer::Written {} => Ok(()),
         Answer::Refused { reason } => Err(reason),
         other => Err(format!("unexpected answer: {other:?}")),
     }
@@ -443,8 +824,10 @@ pub mod memory {
 /// }
 /// ```
 ///
-/// Any of the three may be left out when the manifest doesn't contribute it. The functions
-/// need names other than `command`, `column` and `panel`: those are the exports.
+/// With a context: `context: my_context` (fn(ContextArgument) -> Context) and
+/// `screen: my_screen` (fn(ScreenArgument) -> Screen). Any may be left out when the
+/// manifest doesn't contribute it. The functions need names other than the exports
+/// (`command`, `column`, `panel`, `context`, `screen`).
 #[macro_export]
 macro_rules! extension {
     ($($kind:ident : $f:path),* $(,)?) => {
@@ -492,6 +875,32 @@ macro_rules! extension {
             let argument: $crate::PanelArgument = $crate::argument(json);
             let panel: $crate::Panel = $f(argument);
             $crate::result_json(&panel);
+        }
+    };
+    (@one context $f:path) => {
+        // The ABI: the host passes what it wrote through `alloc`.
+        #[allow(clippy::not_unsafe_ptr_arg_deref)]
+        #[unsafe(no_mangle)]
+        pub extern "C" fn context(ptr: *const u8, len: usize) {
+            $crate::memory::install_panic_hook();
+            // SAFETY: the host wrote `len` bytes at `ptr`, which came from `alloc`.
+            let json = unsafe { $crate::memory::argument(ptr, len) };
+            let argument: $crate::ContextArgument = $crate::argument(json);
+            let context: $crate::Context = $f(argument);
+            $crate::result_json(&context);
+        }
+    };
+    (@one screen $f:path) => {
+        // The ABI: the host passes what it wrote through `alloc`.
+        #[allow(clippy::not_unsafe_ptr_arg_deref)]
+        #[unsafe(no_mangle)]
+        pub extern "C" fn screen(ptr: *const u8, len: usize) {
+            $crate::memory::install_panic_hook();
+            // SAFETY: the host wrote `len` bytes at `ptr`, which came from `alloc`.
+            let json = unsafe { $crate::memory::argument(ptr, len) };
+            let argument: $crate::ScreenArgument = $crate::argument(json);
+            let screen: $crate::Screen = $f(argument);
+            $crate::result_json(&screen);
         }
     };
 }

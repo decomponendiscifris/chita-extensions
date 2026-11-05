@@ -1,85 +1,47 @@
 {
   "id": "it.urial.chita.git",
   "name": "Git",
-  "version": "0.1.1",
+  "version": "0.3.0",
   "author": "Chita",
-  "description": "Shows what changed in a repository: a Git column with each item's state, a panel with the branch, what's ahead or behind and the last commit, and commands to stage, unstage, commit, fetch, pull, push, and see changes and history. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
+  "description": "A repository as a place in Chita: a header with the branch and what changed, Changes with staging, conflicts and stashes, Branches and tags with checkout, merge and delete, History with the commit graph, Worktrees, the diff of what you select in the Inspector, a Git column, and commands to commit, fetch, pull, push and keep .gitignore. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
   "module": "chita_git.wasm",
-  "categories": [
-    "Developer Tools"
-  ],
+  "categories": ["Developer Tools"],
   "permissions": {
-    "files": [
-      {
-        "path": "folder"
-      }
-    ],
-    "tools": [
-      "git"
-    ]
+    "files": [{ "path": "folder", "write": true }],
+    "tools": ["git"]
   },
   "contributes": {
-    "commands": [
-      {
-        "id": "stage",
-        "title": "Stage",
-        "description": "Adds the selected items to the next commit.",
-        "when": "selection"
-      },
-      {
-        "id": "unstage",
-        "title": "Unstage",
-        "description": "Takes the selected items out of the next commit.",
-        "when": "selection"
-      },
-      {
-        "id": "commit",
-        "title": "Commit…",
-        "description": "Commits what’s staged, asking for the message.",
-        "when": "folder"
-      },
-      {
-        "id": "changes",
-        "title": "Show Changes",
-        "description": "Shows the diff of what changed since the last commit.",
-        "when": "folder"
-      },
-      {
-        "id": "history",
-        "title": "Show History",
-        "description": "Shows the last commits of the repository.",
-        "when": "folder"
-      },
-      {
-        "id": "fetch",
-        "title": "Fetch",
-        "description": "Fetches from the configured upstream.",
-        "when": "folder"
-      },
-      {
-        "id": "pull",
-        "title": "Pull",
-        "description": "Pulls from the configured upstream.",
-        "when": "folder"
-      },
-      {
-        "id": "push",
-        "title": "Push",
-        "description": "Pushes to the configured upstream.",
-        "when": "folder"
-      }
-    ],
-    "columns": [
-      {
-        "id": "state",
-        "title": "Git"
-      }
-    ],
-    "panels": [
+    "contexts": [
       {
         "id": "repository",
-        "title": "Git"
+        "title": "Git repository",
+        "symbol": "arrow.triangle.branch",
+        "tint": "red",
+        "marker": ".git",
+        "screens": [
+          { "id": "changes", "title": "Changes", "symbol": "pencil.line" },
+          { "id": "branches", "title": "Branches", "symbol": "arrow.triangle.branch" },
+          { "id": "history", "title": "History", "symbol": "clock" },
+          { "id": "worktrees", "title": "Worktrees", "symbol": "square.on.square" }
+        ]
       }
-    ]
+    ],
+    "commands": [
+      { "id": "stage", "title": "Stage", "description": "Adds the selected items to the next commit.", "when": "selection" },
+      { "id": "unstage", "title": "Unstage", "description": "Takes the selected items out of the next commit.", "when": "selection" },
+      { "id": "commit", "title": "Commit…", "description": "Commits what’s staged, asking for the message.", "when": "folder" },
+      { "id": "changes", "title": "Show Changes", "description": "Shows the diff of what changed since the last commit.", "when": "folder" },
+      { "id": "history", "title": "Show History", "description": "Shows the last commits of the repository.", "when": "folder" },
+      { "id": "fetch", "title": "Fetch", "description": "Fetches from the configured upstream.", "when": "folder" },
+      { "id": "pull", "title": "Pull", "description": "Pulls from the configured upstream.", "when": "folder" },
+      { "id": "push", "title": "Push", "description": "Pushes to the configured upstream.", "when": "folder" },
+      { "id": "ignore", "title": "Ignore", "description": "Adds the selected items to .gitignore.", "when": "selection" },
+      { "id": "ignore-ext", "title": "Ignore All Files of This Kind", "description": "Adds the selected items’ extensions to .gitignore.", "when": "selection" },
+      { "id": "ignore-local", "title": "Ignore on This Mac Only", "description": "Ignores the selected items here only (.git/info/exclude), never committed.", "when": "selection" },
+      { "id": "untrack", "title": "Stop Tracking, Keep the File", "description": "Takes the selected items out of git and ignores them; the files stay.", "when": "selection" },
+      { "id": "edit-ignore", "title": "Edit .gitignore…", "description": "Opens the folder’s .gitignore to edit.", "when": "folder" }
+    ],
+    "columns": [{ "id": "state", "title": "Git" }],
+    "panels": [{ "id": "repository", "title": "Git" }]
   }
 }

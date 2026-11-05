@@ -144,6 +144,13 @@ impl Status {
                 {
                     return "Untracked".into();
                 }
+                if self
+                    .changes
+                    .iter()
+                    .any(|c| c.path == inside && c.kind == Kind::Ignored)
+                {
+                    return "Ignored".into();
+                }
                 let count = self
                     .changes
                     .iter()
@@ -214,6 +221,24 @@ impl Change {
                 (false, true) => word(*worktree).to_owned(),
                 (true, true) => format!("{}, partly staged", word(*worktree)),
             },
+        }
+    }
+}
+
+impl Change {
+    /// What's staged of it ("Added"), when something is.
+    pub fn staged_word(&self) -> Option<&'static str> {
+        match &self.kind {
+            Kind::Tracked { index, .. } if *index != '.' => Some(word(*index)),
+            _ => None,
+        }
+    }
+
+    /// What's changed and not staged ("Modified"), when something is.
+    pub fn unstaged_word(&self) -> Option<&'static str> {
+        match &self.kind {
+            Kind::Tracked { worktree, .. } if *worktree != '.' => Some(word(*worktree)),
+            _ => None,
         }
     }
 }
