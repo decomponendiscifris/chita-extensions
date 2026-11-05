@@ -18,3 +18,5 @@ Permissions: the folder you're viewing (read), and the tool `git`.
 
 Developed in Chita's repository and mirrored here; this folder is the source the store
 builds and signs.
+
+Source: `src/lib.rs` and `src/status.rs` (the status parser, tested on sample output).
