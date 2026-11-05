@@ -1,0 +1,7 @@
+# Reviews: the owners of a path are asked for a review of every pull request touching it,
+# and an id, once published, belongs to its folder's owners.
+*                                @decomponendiscifris
+/extensions/it.urial.chita.git/  @decomponendiscifris
+/sdk/                            @decomponendiscifris
+/scripts/                        @decomponendiscifris
+/.github/                        @decomponendiscifris

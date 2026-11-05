@@ -1,0 +1,6 @@
+# The same toolchain Chita is built with; CI installs exactly this one, so a reviewer's build
+# and the published package come out the same.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
+targets = ["wasm32-unknown-unknown"]

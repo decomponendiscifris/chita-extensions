@@ -1,0 +1,66 @@
+name: Check
+
+# Every pull request: the checks in scripts/check.sh for each extension it touches. Pull
+# requests run other people's build scripts, so this workflow has no secrets and only reads
+# the repository; the runner is fresh each time. Signing happens only in publish.yml, on
+# main, from the reviewed source.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Check the extensions changed
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          cache-on-failure: true
+      - name: Fetch the author's tools
+        run: scripts/tool.sh
+      - name: Check each extension changed
+        env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BASE:-}" ]; then
+            changed="$(git diff --name-only "$BASE...HEAD" -- extensions sdk | cut -d/ -f1-2 | sort -u | grep '^extensions/' || true)"
+            # A change to the SDK: every extension is checked.
+            if git diff --name-only "$BASE...HEAD" -- sdk | grep -q .; then changed="$(ls -d extensions/*/ | sed 's#/$##')"; fi
+          else
+            changed="$(ls -d extensions/*/ | sed 's#/$##')"
+          fi
+          [ -n "$changed" ] || { echo "no extension changed"; exit 0; }
+          for dir in $changed; do
+            [ -d "$dir" ] || continue
+            scripts/check.sh "$dir" "${BASE:-}"
+          done
+      - name: Format
+        run: cargo fmt --all --check
+
+  advisories:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

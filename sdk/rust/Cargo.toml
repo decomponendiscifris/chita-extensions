@@ -1,0 +1,12 @@
+[package]
+name = "chita-ext-sdk"
+description = "What a Chita extension is written with: the requests it can make, what it gets back, and the entry points Chita calls"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,26 @@
+{
+  "id": "it.urial.chita.git",
+  "name": "Git",
+  "version": "0.1.0",
+  "author": "Chita",
+  "description": "Shows what changed in a repository: a Git column with each item's state, a panel with the branch, what's ahead or behind and the last commit, and commands to stage, unstage, commit, fetch, pull, push, and see changes and history. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
+  "module": "chita_git.wasm",
+  "permissions": {
+    "files": [{ "path": "folder" }],
+    "tools": ["git"]
+  },
+  "contributes": {
+    "commands": [
+      { "id": "stage", "title": "Stage", "when": "selection" },
+      { "id": "unstage", "title": "Unstage", "when": "selection" },
+      { "id": "commit", "title": "Commit…", "when": "folder" },
+      { "id": "changes", "title": "Show Changes", "when": "folder" },
+      { "id": "history", "title": "Show History", "when": "folder" },
+      { "id": "fetch", "title": "Fetch", "when": "folder" },
+      { "id": "pull", "title": "Pull", "when": "folder" },
+      { "id": "push", "title": "Push", "when": "folder" }
+    ],
+    "columns": [{ "id": "state", "title": "Git" }],
+    "panels": [{ "id": "repository", "title": "Git" }]
+  }
+}

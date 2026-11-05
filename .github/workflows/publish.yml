@@ -1,0 +1,68 @@
+name: Publish
+
+# Merges to main: every extension whose version isn't released yet is built from the
+# reviewed source, packed and signed with the store's key, published as a release
+# (<id>-<version>) and listed in the signed catalog on the pages branch. The key is a
+# secret of the `store` environment, which only this branch may use.
+on:
+  push:
+    branches: [main]
+    paths: [extensions/**, sdk/**, scripts/**, .github/workflows/publish.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build, sign, release, list
+    runs-on: macos-15
+    timeout-minutes: 40
+    environment: store
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Fetch the author's tools
+        run: scripts/tool.sh
+      - name: Check out the pages branch
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            git worktree add site gh-pages
+          else
+            git worktree add --detach site
+            (cd site && git checkout --orphan gh-pages && git rm -rfq . && touch .nojekyll)
+          fi
+      - name: Publish what isn't out yet
+        env:
+          STORE_KEY: ${{ secrets.STORE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$(mktemp)"
+          printf '%s\n' "$STORE_KEY" > "$key"
+          export STORE_KEY_FILE="$key"
+          for dir in extensions/*/; do
+            scripts/publish.sh "$dir" site
+          done
+          rm -f "$key"
+      - name: Push the catalog
+        run: |
+          set -euo pipefail
+          cd site
+          touch .nojekyll
+          git add -A
+          if git diff --cached --quiet; then echo "the catalog didn't change"; exit 0; fi
+          git -c user.name="chita-extensions" -c user.email="chita-extensions@users.noreply.github.com" \
+            commit -q -m "Catalog as of $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push origin HEAD:gh-pages
