@@ -1,0 +1,26 @@
+{
+  "issued": "2026-11-05T18:12:28Z",
+  "extensions": [
+    {
+      "id": "it.urial.chita.git",
+      "name": "Git",
+      "version": "0.1.0",
+      "author": "Chita",
+      "description": "Shows what changed in a repository: a Git column with each item's state, a panel with the branch, what's ahead or behind and the last commit, and commands to stage, unstage, commit, fetch, pull, push, and see changes and history. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
+      "risk": "high",
+      "permissions": [
+        "folder",
+        "tool:git"
+      ],
+      "api": 1,
+      "url": "https://github.com/decomponendiscifris/chita-extensions/releases/download/it.urial.chita.git-0.1.0/it.urial.chita.git-0.1.0.chitaext",
+      "sha256": "7bb5fea50eaaea0d365850882ff9fe7783c0f8aabdd7eb65a2064262d051040b",
+      "size": 63297,
+      "published": "2026-11-05T18:12:28Z",
+      "repository": "https://github.com/decomponendiscifris/chita-extensions/tree/main/extensions/it.urial.chita.git",
+      "category": ""
+    }
+  ],
+  "signer": "2d216e5e51f98d22f18ae66e5c3f3610694de877f83e04663861831048a76343",
+  "signature": "33c9c941a15cffd274854e1458df86e441523fbc25ad338f27ccbd3ac153db214b06bc717ee38a43b31d9a107e46d6ac450a2866d1cfa87e839c428ccc06510a"
+}
