@@ -99,6 +99,45 @@ if find "$dir" -type f \( -name '*.wasm' -o -name '*.a' -o -name '*.so' -o -name
   fail "prebuilt modules or binaries in the tree: CI builds from source only"
 fi
 
+# The security review, for the reviewer: what the extension asks Chita for, where in the
+# source (every ask site, read, write, tool run), what changed in its permissions since
+# the base, and which dependencies are new. Nothing here decides; the reviewer reads it.
+say ""
+say "### Security review"
+say ""
+if [ -n "$base" ] && git -C "$root" cat-file -e "$base:$manifest" 2>/dev/null; then
+  before="$(git -C "$root" show "$base:$manifest" | python3 -c 'import json,sys; p=json.load(sys.stdin).get("permissions",{}); print(json.dumps(p, sort_keys=True))')"
+  after="$(python3 -c 'import json,sys; p=json.load(open(sys.argv[1])).get("permissions",{}); print(json.dumps(p, sort_keys=True))' "$manifest")"
+  if [ "$before" != "$after" ]; then
+    say "- PERMISSIONS CHANGED: were \`$before\`, now \`$after\`. Read twice."
+  else
+    say "- permissions unchanged: \`$after\`"
+  fi
+else
+  say "- new extension; permissions: \`$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("permissions",{}), sort_keys=True))' "$manifest")\`"
+fi
+sites="$(grep -rnE 'run_tool\(|write_file\(|read_file\(|list_folder\(|ask\(|runTool\(|writeFile\(|readFile\(|listFolder\(|RunTool|WriteFile|ReadFile|ListFolder' --include='*.rs' --include='*.ts' "$dir" 2>/dev/null \
+  | grep -v -E '^[^:]+/(node_modules|dist|build|target)/' | grep -v -E '/(chita\.ts|tests?)/' || true)"
+if [ -n "$sites" ]; then
+  say "- where it asks Chita for files, folders and tools ($(printf '%s\n' "$sites" | wc -l | tr -d ' ') sites):"
+  say '```'
+  printf '%s\n' "$sites" | sed "s#^$root/##" | cut -c1-200 | tee -a "$summary"
+  say '```'
+else
+  say "- it asks Chita for nothing (no ask sites in the source)"
+fi
+if [ -n "$base" ] && git -C "$root" cat-file -e "$base:Cargo.lock" 2>/dev/null; then
+  added="$(diff <(git -C "$root" show "$base:Cargo.lock" | grep -E '^name = ' | sort -u) <(grep -E '^name = ' "$root/Cargo.lock" | sort -u) | grep '^>' | sed 's/^> name = //' | tr -d '"' | paste -sd, - || true)"
+  if [ -n "$added" ]; then say "- NEW DEPENDENCIES: $added. Read what they pull in."; else say "- no new dependencies"; fi
+fi
+if find "$dir" -name 'build.rs' -not -path '*/target/*' | grep -q .; then
+  say "- HAS A BUILD SCRIPT (build.rs): it runs on the reviewer's machine and on CI. Read it first."
+fi
+if grep -rqE 'proc_macro|#\[proc_macro' --include='*.rs' "$dir" 2>/dev/null; then
+  say "- defines procedural macros: they run at build time. Read them first."
+fi
+say ""
+
 # Build, size, tests.
 out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
