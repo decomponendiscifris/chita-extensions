@@ -40,6 +40,17 @@ ones a script can.
    key, publishes the package as a release (`<id>-<version>`) and lists it in the catalog.
    Chita picks it up within a day.
 
+## The security review
+
+Every pull request gets a "Security review" section in the job summary, written by
+`scripts/check.sh`: whether the permissions changed since `main` and how, every place in the
+source where the extension asks Chita for a file, a folder, a write or a tool run, which
+dependencies are new, and whether there is a build script or a procedural macro (code that
+runs at build time, on the reviewer's machine and on CI). The advisories job checks the
+lockfile against the RustSec database. None of this decides anything: the reviewer reads
+those places first, and nothing merges without that reading. At runtime the host is
+sandboxed whatever the review missed, and revocation covers what slips through.
+
 ## What reviewers look at
 
 - What the source does with what it's granted, and whether it needs what it asks for.
