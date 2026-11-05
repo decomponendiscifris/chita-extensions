@@ -1,24 +1,24 @@
 {
-  "issued": "2026-11-05T20:09:59Z",
+  "issued": "2026-11-05T22:54:05Z",
   "extensions": [
     {
       "id": "it.urial.chita.git",
       "name": "Git",
-      "version": "0.1.1",
+      "version": "0.3.0",
       "author": "Chita",
-      "description": "Shows what changed in a repository: a Git column with each item's state, a panel with the branch, what's ahead or behind and the last commit, and commands to stage, unstage, commit, fetch, pull, push, and see changes and history. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
+      "description": "A repository as a place in Chita: a header with the branch and what changed, Changes with staging, conflicts and stashes, Branches and tags with checkout, merge and delete, History with the commit graph, Worktrees, the diff of what you select in the Inspector, a Git column, and commands to commit, fetch, pull, push and keep .gitignore. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
       "categories": [
         "Developer Tools"
       ],
       "risk": "high",
       "permissions": [
-        "folder",
+        "folder:write",
         "tool:git"
       ],
       "api": 1,
-      "url": "https://github.com/decomponendiscifris/chita-extensions/releases/download/it.urial.chita.git-0.1.1/it.urial.chita.git-0.1.1.chitaext",
-      "sha256": "3348f8633921d761595278b12725b482e45843eb3a40da8a1ab7e14e3552d5f7",
-      "size": 63446,
+      "url": "https://github.com/decomponendiscifris/chita-extensions/releases/download/it.urial.chita.git-0.3.0/it.urial.chita.git-0.3.0.chitaext",
+      "sha256": "6ebbfb32fc8403175c2d01af87f438cbdaca9d6c457e435b57963f6d2c2966d6",
+      "size": 96257,
       "published": "2026-11-05T20:09:59Z",
       "repository": "https://github.com/decomponendiscifris/chita-extensions/tree/main/extensions/it.urial.chita.git",
       "commands": [
@@ -69,6 +69,36 @@
           "title": "Push",
           "description": "Pushes to the configured upstream.",
           "when": "folder"
+        },
+        {
+          "id": "ignore",
+          "title": "Ignore",
+          "description": "Adds the selected items to .gitignore.",
+          "when": "selection"
+        },
+        {
+          "id": "ignore-ext",
+          "title": "Ignore All Files of This Kind",
+          "description": "Adds the selected items’ extensions to .gitignore.",
+          "when": "selection"
+        },
+        {
+          "id": "ignore-local",
+          "title": "Ignore on This Mac Only",
+          "description": "Ignores the selected items here only (.git/info/exclude), never committed.",
+          "when": "selection"
+        },
+        {
+          "id": "untrack",
+          "title": "Stop Tracking, Keep the File",
+          "description": "Takes the selected items out of git and ignores them; the files stay.",
+          "when": "selection"
+        },
+        {
+          "id": "edit-ignore",
+          "title": "Edit .gitignore…",
+          "description": "Opens the folder’s .gitignore to edit.",
+          "when": "folder"
         }
       ],
       "columns": [
@@ -81,13 +111,12 @@
       "screenshots": [],
       "readme": "https://decomponendiscifris.github.io/chita-extensions/it.urial.chita.git/README.md",
       "changelog": "https://decomponendiscifris.github.io/chita-extensions/it.urial.chita.git/CHANGELOG.md",
-      "updated": "2026-11-05T20:09:59Z",
+      "updated": "2026-11-05T22:54:05Z",
       "contributors": [
-        "Federico",
-        "Federico Lattanzi"
+        "decomponendiscifris"
       ]
     }
   ],
   "signer": "2d216e5e51f98d22f18ae66e5c3f3610694de877f83e04663861831048a76343",
-  "signature": "5596ecd2d0c6a3c0e80f881947b7c4aae97c9957c154cb3eb10ac86213584b7b0c3e2f47393be39121b96aa461a819befe899d8870db3cd17ce73b5b84817400"
+  "signature": "0aadd626f44e0426e0036dd081c081f84f1ecc2cc3dfed179130ce2cca8a7d560f97572c2b95f89f7e10725da862446fcce2c667680eb5f51ecf6e6c82a9a70f"
 }
