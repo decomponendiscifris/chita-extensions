@@ -41,3 +41,7 @@ Settings › Extensions.
 
 A context may add `"folders_first": true`: such a folder lists its folders first, unless the
 user chose otherwise for it.
+
+## See it in use
+
+`extensions/it.urial.chita.git/extension.json` uses all of these fields.
