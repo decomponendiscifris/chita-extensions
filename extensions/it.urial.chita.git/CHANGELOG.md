@@ -12,6 +12,10 @@ For the store: a category, a line on each command, and an icon. Nothing changes 
 
 The first release: the Git column, the Git panel, and Stage, Unstage, Commit…, Show
 Changes, Show History, Fetch, Pull and Push.
+## 0.7.0
+
+The commands know their place: Stage, Unstage, the ignore family and History of This File are offered on items in a repository, in their groups with their symbols; Commit…, the screens, Fetch, Pull and Push on the folder itself; Clone Repository Here… and Make a Repository Here only outside a repository. Needs Chita with the `place`, `menu` and `group` command fields.
+
 ## 0.6.0
 
 Pull, Push and Commit… say how many commits are behind, ahead and how many files are staged. A file renamed or moved in Chita is staged as a rename. The Git column's marks can badge the file icons. Names typed in (branches, tags, your name and address) are checked before they reach git.
