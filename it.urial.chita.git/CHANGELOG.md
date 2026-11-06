@@ -12,6 +12,10 @@ For the store: a category, a line on each command, and an icon. Nothing changes 
 
 The first release: the Git column, the Git panel, and Stage, Unstage, Commit…, Show
 Changes, Show History, Fetch, Pull and Push.
+## 0.9.0
+
+Inside a repository the Git column and its icon marks are on from the start, and folders list first; both the column and the marks can be turned off in the extension's row in Settings. Needs Chita with the column `shown` and `badge` fields and the context `folders_first` field; older Chita leaves them as chosen before.
+
 ## 0.8.0
 
 The Git column and its icon marks only show in repositories, instead of standing empty in every other folder. Needs Chita with the column `place` field; older Chita shows the column everywhere as before.
