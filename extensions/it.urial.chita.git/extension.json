@@ -71,7 +71,7 @@
         "symbol": "plus.circle",
         "place": "context",
         "menu": "items",
-        "group": "stage"
+        "group": "Staging"
       },
       {
         "id": "unstage",
@@ -81,17 +81,7 @@
         "symbol": "minus.circle",
         "place": "context",
         "menu": "items",
-        "group": "stage"
-      },
-      {
-        "id": "file-history",
-        "title": "History of This File",
-        "description": "The commits that touched the selected file, renames followed.",
-        "when": "file",
-        "symbol": "clock.arrow.circlepath",
-        "place": "context",
-        "menu": "items",
-        "group": "stage"
+        "group": "Staging"
       },
       {
         "id": "ignore",
@@ -101,7 +91,7 @@
         "symbol": "eye.slash",
         "place": "context",
         "menu": "items",
-        "group": "ignore"
+        "group": "Ignoring"
       },
       {
         "id": "ignore-ext",
@@ -111,7 +101,7 @@
         "symbol": "eye.slash",
         "place": "context",
         "menu": "items",
-        "group": "ignore"
+        "group": "Ignoring"
       },
       {
         "id": "ignore-local",
@@ -121,7 +111,7 @@
         "symbol": "eye.slash",
         "place": "context",
         "menu": "items",
-        "group": "ignore"
+        "group": "Ignoring"
       },
       {
         "id": "untrack",
@@ -131,7 +121,7 @@
         "symbol": "xmark.circle",
         "place": "context",
         "menu": "items",
-        "group": "ignore"
+        "group": "Ignoring"
       },
       {
         "id": "edit-ignore",
@@ -141,7 +131,17 @@
         "symbol": "doc.text",
         "place": "context",
         "menu": "any",
-        "group": "ignore"
+        "group": "Ignoring"
+      },
+      {
+        "id": "file-history",
+        "title": "History of This File",
+        "description": "The commits that touched the selected file, renames followed.",
+        "when": "file",
+        "symbol": "clock.arrow.circlepath",
+        "place": "context",
+        "menu": "items",
+        "group": "History"
       },
       {
         "id": "commit",
@@ -151,7 +151,7 @@
         "symbol": "checkmark.circle",
         "place": "context",
         "menu": "folder",
-        "group": "repository"
+        "group": "Repository"
       },
       {
         "id": "changes",
@@ -161,7 +161,7 @@
         "symbol": "plus.forwardslash.minus",
         "place": "context",
         "menu": "folder",
-        "group": "repository"
+        "group": "Repository"
       },
       {
         "id": "history",
@@ -171,7 +171,7 @@
         "symbol": "clock",
         "place": "context",
         "menu": "folder",
-        "group": "repository"
+        "group": "Repository"
       },
       {
         "id": "fetch",
@@ -181,7 +181,7 @@
         "symbol": "arrow.down.to.line",
         "place": "context",
         "menu": "folder",
-        "group": "remote"
+        "group": "Remote"
       },
       {
         "id": "pull",
@@ -191,7 +191,7 @@
         "symbol": "arrow.down",
         "place": "context",
         "menu": "folder",
-        "group": "remote"
+        "group": "Remote"
       },
       {
         "id": "push",
@@ -201,7 +201,7 @@
         "symbol": "arrow.up",
         "place": "context",
         "menu": "folder",
-        "group": "remote"
+        "group": "Remote"
       },
       {
         "id": "clone",
@@ -211,7 +211,7 @@
         "symbol": "arrow.down.circle",
         "place": "outside",
         "menu": "folder",
-        "group": "start"
+        "group": "New Repository"
       },
       {
         "id": "init",
@@ -221,7 +221,7 @@
         "symbol": "plus.square",
         "place": "outside",
         "menu": "folder",
-        "group": "start"
+        "group": "New Repository"
       }
     ],
     "columns": [

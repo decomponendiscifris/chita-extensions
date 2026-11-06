@@ -14,7 +14,7 @@ The first release: the Git column, the Git panel, and Stage, Unstage, Commit…,
 Changes, Show History, Fetch, Pull and Push.
 ## 0.7.0
 
-The commands know their place: Stage, Unstage, the ignore family and History of This File are offered on items in a repository, in their groups with their symbols; Commit…, the screens, Fetch, Pull and Push on the folder itself; Clone Repository Here… and Make a Repository Here only outside a repository. Needs Chita with the `place`, `menu` and `group` command fields.
+The commands know their place: Stage, Unstage, the ignore family and History of This File are offered on items in a repository, under Staging, Ignoring and History with their symbols; Commit…, the screens, Fetch, Pull and Push on the folder itself, under Repository and Remote; Clone Repository Here… and Make a Repository Here only outside a repository. Needs Chita with the `place`, `menu` and `group` command fields.
 
 ## 0.6.0
 
