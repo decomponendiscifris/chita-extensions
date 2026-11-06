@@ -12,3 +12,8 @@ For the store: a category, a line on each command, and an icon. Nothing changes 
 
 The first release: the Git column, the Git panel, and Stage, Unstage, Commit…, Show
 Changes, Show History, Fetch, Pull and Push.
+## 0.5.0
+
+A File screen with the selected file's versions: each one to look at in the Inspector, to save as a copy next to the file, or to bring back (what's there first goes where Undo Discard finds it). How Pull brings the upstream in (merge, rebase, fast-forward only) is set from Flow's conventions.
+
+## 0.4.0
