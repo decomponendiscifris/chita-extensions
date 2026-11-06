@@ -97,6 +97,9 @@ impl Repo {
             Ask::RunTool { tool, .. } => Answer::Refused {
                 reason: format!("{tool} isn't a tool Chita runs"),
             },
+            Ask::CloneRepository {} => Answer::Refused {
+                reason: "cancelled".into(),
+            },
             // Files in the viewed folder, read and written, as the manifest's grant says.
             Ask::ReadFile { path } => {
                 let folder = VIEWED.with(|v| v.borrow().clone());
@@ -153,11 +156,14 @@ impl Drop for Repo {
 
 fn column(repo: &Repo, folder: &str, names: &[&str]) -> Vec<String> {
     viewing(folder);
-    chita_git::column_texts(ColumnArgument {
+    chita_git::column_cells(ColumnArgument {
         column: "state".into(),
         folder: folder.to_owned(),
         paths: names.iter().map(|n| repo.path(n)).collect(),
     })
+    .into_iter()
+    .map(|c| c.text)
+    .collect()
 }
 
 fn run(
@@ -339,11 +345,14 @@ fn outside_a_repository_there_is_nothing_to_show() {
     viewing(&folder.to_string_lossy());
     let paths = vec![folder.join("x").to_string_lossy().into_owned()];
     assert_eq!(
-        chita_git::column_texts(ColumnArgument {
+        chita_git::column_cells(ColumnArgument {
             column: "state".into(),
             folder: folder.to_string_lossy().into_owned(),
             paths,
-        }),
+        })
+        .into_iter()
+        .map(|c| c.text)
+        .collect::<Vec<_>>(),
         vec![""]
     );
     assert_eq!(
@@ -793,4 +802,153 @@ fn history_tags_and_worktrees_follow_the_repository() {
     );
     assert!(!std::path::Path::new(&added.folder).is_dir());
     assert_eq!(screen(&repo, "worktrees").sections[0].rows.len(), 1);
+}
+
+#[test]
+fn flow_conventions_push_and_file_history_follow_the_repository() {
+    let repo = Repo::new();
+    Repo::answer_from_viewed_folder();
+    repo.write("a.txt", "one\n");
+    repo.setup(&["add", "."]);
+    repo.setup(&["commit", "-q", "-m", "First"]);
+
+    // Flow: defaults until set up; Set Up writes them and makes develop.
+    let flow = screen(&repo, "flow");
+    assert!(flow.toolbar.iter().any(|a| a.id == "flow-setup"));
+    assert_eq!(flow.sections.last().unwrap().rows[0].badge, "defaults");
+    assert_eq!(
+        run(&repo, "flow-setup", &[], None),
+        chita_ext_sdk::CommandResult::nothing()
+    );
+    let flow = screen(&repo, "flow");
+    assert!(flow.toolbar.iter().all(|a| a.id != "flow-setup"));
+    assert_eq!(flow.sections.last().unwrap().rows[0].badge, "set up");
+    assert_eq!(
+        rows_of(&screen(&repo, "branches"), "local"),
+        vec!["develop", "main"]
+    );
+    // A feature: started from develop, listed, finished into develop and gone.
+    assert_eq!(
+        run(&repo, "flow-start-feature", &[], Some("login")),
+        chita_ext_sdk::CommandResult::nothing()
+    );
+    assert_eq!(context(&repo).title, "feature/login");
+    repo.write("login.txt", "x\n");
+    repo.setup(&["add", "login.txt"]);
+    repo.setup(&["commit", "-q", "-m", "Add login"]);
+    let flow = screen(&repo, "flow");
+    assert_eq!(rows_of(&flow, "feature"), vec!["login"]);
+    assert_eq!(flow.sections[0].rows[0].badge, "current");
+    assert_eq!(
+        act_on(&repo, "flow", "flow-finish", &["local:feature/login"], None),
+        chita_ext_sdk::CommandResult::nothing()
+    );
+    assert_eq!(context(&repo).title, "develop");
+    assert!(repo.root.join("login.txt").is_file());
+    assert!(rows_of(&screen(&repo, "flow"), "feature").is_empty());
+    // A release: finished onto main with a tag, back into develop.
+    assert_eq!(
+        run(&repo, "flow-start-release", &[], Some("1.0")),
+        chita_ext_sdk::CommandResult::nothing()
+    );
+    assert_eq!(context(&repo).title, "release/1.0");
+    assert_eq!(
+        act_on(&repo, "flow", "flow-finish", &["local:release/1.0"], None),
+        chita_ext_sdk::CommandResult::nothing()
+    );
+    assert_eq!(rows_of(&screen(&repo, "branches"), "tags"), vec!["1.0"]);
+    assert_eq!(context(&repo).title, "develop");
+    // The commit convention: set, then Commit… asks again with the reason until it holds.
+    assert_eq!(
+        run(&repo, "flow-style-imperative", &[], None),
+        chita_ext_sdk::CommandResult::nothing()
+    );
+    assert!(
+        screen(&repo, "flow").sections.last().unwrap().rows[1]
+            .title
+            .contains("imperative")
+    );
+    repo.write("a.txt", "two\n");
+    repo.setup(&["add", "a.txt"]);
+    let again = run(&repo, "commit", &[], Some("fixed stuff."))
+        .prompt
+        .unwrap();
+    assert!(
+        again.multiline
+            && again.initial == "fixed stuff."
+            && again.message.contains("period"),
+        "{again:?}"
+    );
+    assert!(
+        run(&repo, "commit", &[], Some("Fix the stuff"))
+            .message
+            .unwrap()
+            .contains("Fix the stuff")
+    );
+    // A file's own history, renames followed.
+    repo.setup(&["mv", "a.txt", "b.txt"]);
+    repo.setup(&["commit", "-q", "-m", "Rename a to b"]);
+    let history = run(&repo, "file-history", &["b.txt"], None);
+    let text = history.output.unwrap();
+    assert!(
+        text.contains("Rename a to b") && text.contains("First"),
+        "{text}"
+    );
+    // Rebase from the Branches screen.
+    assert_eq!(
+        run(&repo, "new-branch", &[], Some("topic")),
+        chita_ext_sdk::CommandResult::nothing()
+    );
+    repo.write("t.txt", "t\n");
+    repo.setup(&["add", "t.txt"]);
+    repo.setup(&["commit", "-q", "-m", "Topic"]);
+    act_on(&repo, "branches", "checkout", &["local:develop"], None);
+    repo.write("d.txt", "d\n");
+    repo.setup(&["add", "d.txt"]);
+    repo.setup(&["commit", "-q", "-m", "Develop moves"]);
+    act_on(&repo, "branches", "checkout", &["local:topic"], None);
+    assert_eq!(
+        act_on(&repo, "branches", "rebase", &["local:develop"], None),
+        chita_ext_sdk::CommandResult::nothing()
+    );
+    assert!(repo.root.join("d.txt").is_file() && repo.root.join("t.txt").is_file());
+    // Push with no remote: git's own words, not a crash.
+    assert!(run(&repo, "push", &[], None).message.is_some());
+}
+
+#[test]
+fn a_plain_folder_becomes_a_repository_and_cells_say_the_state() {
+    let folder = std::env::temp_dir().join(format!("chita-git-init-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).unwrap();
+    Repo::answer_from_viewed_folder();
+    viewing(&folder.to_string_lossy());
+    let made = chita_git::run_command(CommandArgument {
+        command: "init".into(),
+        folder: Some(folder.to_string_lossy().into_owned()),
+        ..Default::default()
+    });
+    assert!(made.message.unwrap().contains("main"));
+    assert!(folder.join(".git").is_dir());
+    std::fs::write(folder.join("x.txt"), "x").unwrap();
+    std::fs::write(folder.join(".gitignore"), "ignored.txt\n").unwrap();
+    std::fs::write(folder.join("ignored.txt"), "x").unwrap();
+    let cells = chita_git::column_cells(ColumnArgument {
+        column: "state".into(),
+        folder: folder.to_string_lossy().into_owned(),
+        paths: vec![
+            folder.join("x.txt").to_string_lossy().into_owned(),
+            folder.join("ignored.txt").to_string_lossy().into_owned(),
+        ],
+    });
+    assert_eq!(
+        (
+            cells[0].text.as_str(),
+            cells[0].symbol.as_str(),
+            cells[0].dim
+        ),
+        ("Untracked", "questionmark.circle", false)
+    );
+    assert_eq!((cells[1].text.as_str(), cells[1].dim), ("Ignored", true));
+    std::fs::remove_dir_all(&folder).unwrap();
 }

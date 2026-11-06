@@ -1,9 +1,9 @@
 {
   "id": "it.urial.chita.git",
   "name": "Git",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "Chita",
-  "description": "A repository as a place in Chita: a header with the branch and what changed, Changes with staging, conflicts and stashes, Branches and tags with checkout, merge and delete, History with the commit graph, Worktrees, the diff of what you select in the Inspector, a Git column, and commands to commit, fetch, pull, push and keep .gitignore. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
+  "description": "A repository as a place in Chita: a header with the branch and what changed, Changes with staging, conflicts and stashes, Branches and tags with checkout, merge, rebase and delete, History with the commit graph, Worktrees and submodules, Flow with feature, release and hotfix branches and the commit convention, the diff of what you select in the Inspector, a Git column, and commands to commit, fetch, pull, push, clone and keep .gitignore. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
   "module": "chita_git.wasm",
   "categories": ["Developer Tools"],
   "permissions": {
@@ -22,7 +22,8 @@
           { "id": "changes", "title": "Changes", "symbol": "pencil.line" },
           { "id": "branches", "title": "Branches", "symbol": "arrow.triangle.branch" },
           { "id": "history", "title": "History", "symbol": "clock" },
-          { "id": "worktrees", "title": "Worktrees", "symbol": "square.on.square" }
+          { "id": "worktrees", "title": "Worktrees", "symbol": "square.on.square" },
+          { "id": "flow", "title": "Flow", "symbol": "point.3.connected.trianglepath.dotted" }
         ]
       }
     ],
@@ -39,7 +40,10 @@
       { "id": "ignore-ext", "title": "Ignore All Files of This Kind", "description": "Adds the selected items’ extensions to .gitignore.", "when": "selection" },
       { "id": "ignore-local", "title": "Ignore on This Mac Only", "description": "Ignores the selected items here only (.git/info/exclude), never committed.", "when": "selection" },
       { "id": "untrack", "title": "Stop Tracking, Keep the File", "description": "Takes the selected items out of git and ignores them; the files stay.", "when": "selection" },
-      { "id": "edit-ignore", "title": "Edit .gitignore…", "description": "Opens the folder’s .gitignore to edit.", "when": "folder" }
+      { "id": "edit-ignore", "title": "Edit .gitignore…", "description": "Opens the folder’s .gitignore to edit, with templates to insert.", "when": "folder" },
+      { "id": "file-history", "title": "History of This File", "description": "The commits that touched the selected file, renames followed.", "when": "selection" },
+      { "id": "clone", "title": "Clone Repository Here…", "description": "Clones a repository into this folder from an address you type into Chita’s own prompt.", "when": "folder" },
+      { "id": "init", "title": "Make a Repository Here", "description": "Starts a repository in this folder, on the branch main.", "when": "folder" }
     ],
     "columns": [{ "id": "state", "title": "Git" }],
     "panels": [{ "id": "repository", "title": "Git" }]

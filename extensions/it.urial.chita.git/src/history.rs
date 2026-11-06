@@ -259,6 +259,81 @@ pub fn worktrees(list: &[Worktree]) -> Screen {
     screen.section(section)
 }
 
+/// A submodule as `git submodule status` reports it: a mark (" " in place, "-" not
+/// initialised, "+" at another commit, "U" with conflicts), the commit, the path, and
+/// what `describe` says in parentheses.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Submodule {
+    pub path: String,
+    pub mark: char,
+    pub commit: String,
+    pub describe: String,
+}
+
+impl Submodule {
+    pub fn parse(output: &str) -> Vec<Submodule> {
+        output
+            .lines()
+            .filter_map(|line| {
+                let mut chars = line.chars();
+                let mark = chars.next()?;
+                let rest = chars.as_str();
+                let mut parts = rest.splitn(2, ' ');
+                let commit = parts.next()?.chars().take(7).collect();
+                let tail = parts.next()?.trim();
+                let (path, describe) = match tail.split_once(" (") {
+                    Some((p, d)) => (p.trim().to_owned(), d.trim_end_matches(')').to_owned()),
+                    None => (tail.to_owned(), String::new()),
+                };
+                Some(Submodule {
+                    path,
+                    mark,
+                    commit,
+                    describe,
+                })
+            })
+            .collect()
+    }
+
+    pub fn state(&self) -> &'static str {
+        match self.mark {
+            '-' => "not set up",
+            '+' => "at another commit than recorded",
+            'U' => "in conflict",
+            _ => "as recorded",
+        }
+    }
+}
+
+/// The Submodules section of the Worktrees screen; `root` is the repository's root.
+pub fn submodules(list: &[Submodule], root: &str) -> Section {
+    let root = root.trim_end_matches('/');
+    let mut section = Section::new("submodules", "Submodules");
+    for m in list {
+        let mut subtitle = m.state().to_owned();
+        if !m.describe.is_empty() {
+            subtitle.push_str(&format!(" \u{00B7} {}", m.describe));
+        }
+        if !m.commit.is_empty() {
+            subtitle.push_str(&format!(" \u{00B7} {}", m.commit));
+        }
+        let (color, symbol) = match m.mark {
+            '-' => ("gray", "square.dashed"),
+            '+' => ("orange", "square.stack.3d.up"),
+            'U' => ("red", "exclamationmark.triangle.fill"),
+            _ => ("blue", "square.stack.3d.up"),
+        };
+        section = section.row(
+            ScreenRow::new(format!("{root}/{}", m.path), m.path.clone())
+                .subtitle(subtitle)
+                .symbol(symbol, color)
+                .folder(format!("{root}/{}", m.path))
+                .action(Action::new("submodule-update", "Update").symbol("arrow.down.circle")),
+        );
+    }
+    section
+}
+
 /// A tag as `for-each-ref refs/tags` reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tag {
@@ -409,6 +484,24 @@ mod tests {
         assert_eq!(screen.sections[0].rows[1].folder, "/r-feature");
         assert_eq!(screen.sections[0].rows[1].actions[0].id, "worktree-remove");
 
+        let modules = Submodule::parse(
+            " 0123456789abcdef libs/one (v1.2-3-g0123456)\n-fedcba9876543210 libs/two\n+aaaaaaa libs/three (heads/main)\n",
+        );
+        assert_eq!(modules.len(), 3);
+        assert_eq!(
+            (
+                modules[0].path.as_str(),
+                modules[0].mark,
+                modules[0].describe.as_str()
+            ),
+            ("libs/one", ' ', "v1.2-3-g0123456")
+        );
+        assert_eq!(
+            (modules[1].state(), modules[2].state()),
+            ("not set up", "at another commit than recorded")
+        );
+        let section = submodules(&modules, "/r/");
+        assert_eq!(section.rows[1].folder, "/r/libs/two");
         let tags = Tag::parse("v1\t3 days ago\tFirst release\nv2\t\t\n");
         assert_eq!(tags.len(), 2);
         let section = super::tags(&tags);

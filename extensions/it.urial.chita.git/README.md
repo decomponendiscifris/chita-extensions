@@ -9,13 +9,18 @@ A repository as a place in Chita, from the folder you're viewing:
 - **Changes**: conflicts, staged, changed, untracked and stashes, with Stage, Unstage,
   Mark Resolved, Discard (a copy is kept for a week: Undo Discard), Commit…, Amend…,
   Stash All…, and the diff of what you select in the Inspector;
-- **Branches** and tags: check out, merge into the current one, delete, new branch, new
-  tag; **History** with the commit graph, a branch or a tag from a commit, cherry-pick
-  and revert; **Worktrees** to list, add next to the repository, open and remove;
+- **Branches** and tags: check out, merge into the current one, rebase onto it, delete,
+  new branch, new tag, push and force push with lease; **History** with the commit graph,
+  a branch or a tag from a commit, cherry-pick and revert; **Worktrees** and submodules to
+  list, add next to the repository, open, update and remove; **Flow** with feature,
+  release and hotfix branches by the repository's gitflow conventions, and the commit
+  message convention Commit… checks;
 - a **Git column** with each item's state ("Modified", "Added (staged)", "Untracked",
   "Ignored", "2 changes" for a folder) and a **Git panel** in the Inspector;
 - **.gitignore** from the menu: Ignore, Ignore All Files of This Kind, Ignore on This Mac
-  Only, Stop Tracking and Keep the File, Edit .gitignore….
+  Only, Stop Tracking and Keep the File, Edit .gitignore… with templates to insert;
+- **Clone Repository Here…** from an address you type into Chita's own prompt, **Make a
+  Repository Here**, and **History of This File**.
 
 Everything is the real `git` on your Mac, run by Chita in the folder you're viewing under
 Chita's rules for it: everyday subcommands only, nothing that makes git run something else or
