@@ -1,7 +1,7 @@
 {
   "id": "it.urial.chita.git",
   "name": "Git",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "author": "Chita",
   "description": "A repository as a place in Chita: a header with the branch and what changed, Changes with staging, conflicts and stashes, Branches and tags with checkout, merge, rebase and delete, History with the commit graph, Worktrees and submodules, Flow with feature, release and hotfix branches and the commit convention, the diff of what you select in the Inspector, a Git column, and commands to commit, fetch, pull, push, clone and keep .gitignore. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
   "module": "chita_git.wasm",
@@ -18,6 +18,7 @@
         "symbol": "arrow.triangle.branch",
         "tint": "red",
         "marker": ".git",
+        "on_move": "track-moves",
         "screens": [
           { "id": "changes", "title": "Changes", "symbol": "pencil.line" },
           { "id": "branches", "title": "Branches", "symbol": "arrow.triangle.branch" },

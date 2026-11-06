@@ -279,6 +279,30 @@ fn targets(argument: &CommandArgument) -> Vec<String> {
     }
 }
 
+/// A name the user typed (a branch, a tag), as git may take it: never something that
+/// reads as an option, nor what a ref name can't hold.
+fn plain_name(name: &str) -> Result<&str, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("A name is needed.".into());
+    }
+    if name.starts_with('-')
+        || name.contains("..")
+        || name.contains(char::is_whitespace)
+        || name
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
+        || name.ends_with('/')
+        || name.ends_with(".lock")
+        || name.contains("@{")
+    {
+        return Err(format!(
+            "\u{201C}{name}\u{201D} isn\u{2019}t a name git takes: no spaces, no leading dash, none of ~ ^ : ? * [ \\ or \u{201C}..\u{201D}."
+        ));
+    }
+    Ok(name)
+}
+
 pub fn run_command(argument: CommandArgument) -> CommandResult {
     let folder = argument.folder.as_deref();
     let targets = targets(&argument);
@@ -332,7 +356,7 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 )
                 .placeholder("What it is (optional)"),
             ),
-            Some(message) => plain(&["stash", "push", "-u", "-m", message]),
+            Some(message) => plain(&["stash", "push", "-u", "-m", message, "--", "."]),
         },
         "stash-pop" | "stash-apply" | "stash-drop" => {
             let Some(id) = targets.first() else {
@@ -363,7 +387,10 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 )
                 .placeholder("feature/name"),
             ),
-            Some(name) => plain(&["switch", "-c", name]),
+            Some(name) => match plain_name(name) {
+                Ok(name) => plain(&["switch", "-c", name]),
+                Err(why) => CommandResult::message(why),
+            },
         },
         "delete-branch" => match targets.first().and_then(|id| id.strip_prefix("local:")) {
             Some(name) => match git(&["branch", "-d", name]) {
@@ -403,7 +430,10 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 Prompt::line("New Branch Here", "Made from this commit, and checked out.", "Create")
                     .placeholder("feature/name"),
             ),
-            (Some(hash), Some(name)) => plain(&["switch", "-c", name, hash]),
+            (Some(hash), Some(name)) => match plain_name(name) {
+                Ok(name) => plain(&["switch", "-c", name, hash]),
+                Err(why) => CommandResult::message(why),
+            },
             (None, _) => CommandResult::message("Choose a commit first."),
         },
         "cherry-pick" => match targets.first() {
@@ -424,6 +454,10 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 .placeholder("v1.0"),
             ),
             Some(name) => {
+                let name = match plain_name(name) {
+                    Ok(name) => name,
+                    Err(why) => return CommandResult::message(why),
+                };
                 let mut args = vec!["tag", "-a", name, "-m", name];
                 if argument.command == "tag-here"
                     && let Some(hash) = targets.first()
@@ -447,6 +481,10 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 .placeholder("feature/name"),
             ),
             Some(branch) => {
+                let branch = match plain_name(branch) {
+                    Ok(branch) => branch,
+                    Err(why) => return CommandResult::message(why),
+                };
                 let folder = argument.folder.as_deref().unwrap_or("");
                 let name = folder.trim_end_matches('/').rsplit('/').next().unwrap_or("repo");
                 let leaf = branch.replace('/', "-");
@@ -564,6 +602,24 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 Err(reason) => CommandResult::message(reason),
             }
         }
+        "track-moves" => {
+            // Chita moved or renamed items: what git tracked among them is staged as a
+            // rename (the old path's removal and the new path's addition together).
+            let mut staged = 0;
+            for m in &argument.moves {
+                let pair = self::names(folder, &[m.from.clone(), m.to.clone()]);
+                if pair.len() != 2 {
+                    continue;
+                }
+                let tracked = git(&["ls-files", "--error-unmatch", "--", &pair[0]])
+                    .is_ok_and(|out| out.succeeded());
+                if tracked && git(&["add", "-A", "--", &pair[0], &pair[1]]).is_ok_and(|out| out.succeeded()) {
+                    staged += 1;
+                }
+            }
+            let _ = staged;
+            CommandResult::nothing()
+        }
         "flow-setup" => flow_setup(),
         "flow-start-feature" | "flow-start-release" | "flow-start-hotfix" => {
             let kind = match argument.command.as_str() {
@@ -583,7 +639,10 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                         Kind::Release | Kind::Hotfix => "1.2.0",
                     }),
                 ),
-                Some(name) => flow_start(kind, name),
+                Some(name) => match plain_name(name) {
+                    Ok(name) => flow_start(kind, name),
+                    Err(why) => CommandResult::message(why),
+                },
             }
         }
         "flow-finish" => match targets.first().and_then(|id| id.strip_prefix("local:")) {
@@ -965,9 +1024,13 @@ fn identity_missing() -> Option<Prompt> {
 
 /// Sets `key` for the repository from the prompt's answer, then goes on to `then`.
 fn identity(key: &str, input: Option<&str>, then: &str) -> CommandResult {
-    let Some(value) = input else {
+    let Some(value) = input.map(str::trim).filter(|v| !v.is_empty()) else {
         return CommandResult::nothing();
     };
+    // A value that reads as an option never reaches git as one.
+    if value.starts_with('-') || value.contains('\n') {
+        return CommandResult::message(format!("\u{201C}{value}\u{201D} can\u{2019}t be a {key}."));
+    }
     if let Err(reason) = git_ok(&["config", "--local", key, value]) {
         return CommandResult::message(reason);
     }
