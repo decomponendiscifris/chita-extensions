@@ -107,6 +107,17 @@ pub struct CommandArgument {
     pub screen: Option<String>,
     #[serde(default)]
     pub rows: Vec<String>,
+    /// Items Chita just moved or renamed, for a context's `on_move` command: full paths,
+    /// from and to.
+    #[serde(default)]
+    pub moves: Vec<Move>,
+}
+
+/// An item moved or renamed by Chita.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Move {
+    pub from: String,
+    pub to: String,
 }
 
 /// What a command gives back: a short message (shown as an alert), output (shown in full),
