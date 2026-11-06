@@ -33,6 +33,9 @@ pub mod protocol {
         RunTool { tool: String, args: Vec<String> },
         /// Writes a file whole, where the manifest's grant says `write`.
         WriteFile { path: String, contents: Vec<u8> },
+        /// Clones a repository into the viewed folder from an address the user types into
+        /// Chita's own prompt. Needs the `git` tool.
+        CloneRepository {},
     }
 
     /// Chita's answer.
@@ -104,6 +107,17 @@ pub struct CommandArgument {
     pub screen: Option<String>,
     #[serde(default)]
     pub rows: Vec<String>,
+    /// Items Chita just moved or renamed, for a context's `on_move` command: full paths,
+    /// from and to.
+    #[serde(default)]
+    pub moves: Vec<Move>,
+}
+
+/// An item moved or renamed by Chita.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Move {
+    pub from: String,
+    pub to: String,
 }
 
 /// What a command gives back: a short message (shown as an alert), output (shown in full),
@@ -181,6 +195,16 @@ pub struct Prompt {
     /// The command the answer goes to (as its `input`); the same command when empty.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub next: String,
+    /// Texts the editor offers to insert (templates), by title.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inserts: Vec<Insert>,
+}
+
+/// A text the editor can insert at the end, chosen by its title.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Insert {
+    pub title: String,
+    pub text: String,
 }
 
 impl Prompt {
@@ -212,6 +236,49 @@ impl Prompt {
     /// The answer goes to another command.
     pub fn next(mut self, command: impl Into<String>) -> Self {
         self.next = command.into();
+        self
+    }
+
+    /// A text the editor offers to insert.
+    pub fn insert(mut self, title: impl Into<String>, text: impl Into<String>) -> Self {
+        self.inserts.push(Insert {
+            title: title.into(),
+            text: text.into(),
+        });
+        self
+    }
+}
+
+/// A column's cell with more than text: a symbol in a colour before it, or dimmed (an
+/// item that doesn't count, like one git ignores). `column` may answer these instead of
+/// plain texts (the `cells` entry point).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ColumnCell {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub symbol: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub color: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dim: bool,
+}
+
+impl ColumnCell {
+    pub fn text(text: impl Into<String>) -> ColumnCell {
+        ColumnCell {
+            text: text.into(),
+            ..Default::default()
+        }
+    }
+
+    pub fn symbol(mut self, name: impl Into<String>, color: impl Into<String>) -> Self {
+        self.symbol = name.into();
+        self.color = color.into();
+        self
+    }
+
+    pub fn dim(mut self) -> Self {
+        self.dim = true;
         self
     }
 }
@@ -617,6 +684,24 @@ pub fn write_file(path: &str, contents: &[u8]) -> Result<(), String> {
     }
 }
 
+/// Clones a repository into the viewed folder: Chita asks the user for the address and
+/// runs git. What git said, or why not (`"cancelled"` when the user didn't answer).
+pub fn clone_repository() -> Result<ToolOutput, String> {
+    match ask(&Ask::CloneRepository {}) {
+        Answer::Tool {
+            status,
+            stdout,
+            stderr,
+        } => Ok(ToolOutput {
+            status,
+            stdout,
+            stderr,
+        }),
+        Answer::Refused { reason } => Err(reason),
+        other => Err(format!("unexpected answer: {other:?}")),
+    }
+}
+
 /// Runs a tool from the manifest in the viewed folder, or says why not.
 pub fn run_tool(tool: &str, args: &[&str]) -> Result<ToolOutput, String> {
     match ask(&Ask::RunTool {
@@ -862,6 +947,20 @@ macro_rules! extension {
             let argument: $crate::ColumnArgument = $crate::argument(json);
             let texts: Vec<String> = $f(argument);
             $crate::result_json(&texts);
+        }
+    };
+    (@one cells $f:path) => {
+        // The ABI: the host passes what it wrote through `alloc`. A column answered with
+        // cells (a symbol, a colour, dimmed) instead of plain texts.
+        #[allow(clippy::not_unsafe_ptr_arg_deref)]
+        #[unsafe(no_mangle)]
+        pub extern "C" fn column(ptr: *const u8, len: usize) {
+            $crate::memory::install_panic_hook();
+            // SAFETY: the host wrote `len` bytes at `ptr`, which came from `alloc`.
+            let json = unsafe { $crate::memory::argument(ptr, len) };
+            let argument: $crate::ColumnArgument = $crate::argument(json);
+            let cells: Vec<$crate::ColumnCell> = $f(argument);
+            $crate::result_json(&cells);
         }
     };
     (@one panel $f:path) => {

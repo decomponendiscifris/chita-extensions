@@ -5,15 +5,18 @@
 //! item's state, a panel, and commands to commit, fetch, pull, push and keep `.gitignore`.
 
 use chita_ext_sdk::{
-    ColumnArgument, CommandArgument, CommandResult, Context, ContextArgument, Panel, PanelArgument,
-    Prompt, Screen, ScreenArgument, ToolOutput,
+    ColumnArgument, ColumnCell, CommandArgument, CommandResult, Context, ContextArgument, Panel,
+    PanelArgument, Prompt, Screen, ScreenArgument, ToolOutput,
 };
 
+pub mod flow;
 pub mod history;
 pub mod ignore;
 pub mod screens;
 pub mod status;
-use history::{Commit, Tag, Worktree};
+pub mod templates;
+use flow::{CommitStyle, Conventions, FlowBranch, Kind, PullStyle};
+use history::{Commit, Submodule, Tag, Worktree};
 use screens::{Branch, DISCARD_KEEP_SECONDS, DISCARD_PREFIX, InProgress, Stash};
 use status::Status;
 
@@ -25,7 +28,7 @@ thread_local! {
 
 chita_ext_sdk::extension! {
     command: run_command,
-    column: column_texts,
+    cells: column_cells,
     panel: show_panel,
     context: describe_context,
     screen: show_screen,
@@ -211,33 +214,42 @@ fn show(args: &[&str], names: &[String], nothing: &str) -> CommandResult {
 /// said, and when it couldn't sign in, what to do about it.
 fn reach(args: &[&str]) -> CommandResult {
     match git(args) {
-        Ok(out) if out.succeeded() => {
-            // Push and fetch report on stderr even when all went well.
-            let said = out.stderr.trim();
-            let said = if said.is_empty() {
-                out.stdout.trim()
-            } else {
-                said
-            };
-            let last: Vec<&str> = said.lines().rev().take(3).collect();
-            if last.is_empty() {
-                CommandResult::message("Done.")
-            } else {
-                CommandResult::message(last.into_iter().rev().collect::<Vec<_>>().join("\n"))
-            }
-        }
-        Ok(out) => {
-            let mut text = failure(&out);
-            if needs_sign_in(&out.stderr) {
-                text.push_str(
-                    "\n\nSign in again from Terminal (git push, or gh auth login): Chita never \
-                     keeps your passwords, it uses what git and your SSH agent already have.",
-                );
-            }
-            CommandResult::message(text)
-        }
+        Ok(out) if out.succeeded() => reach_said(&out),
+        Ok(out) => reach_failure(&out),
         Err(reason) => CommandResult::message(reason),
     }
+}
+
+/// What a network command that succeeded said (push and fetch report on stderr even when
+/// all went well).
+fn reach_said(out: &ToolOutput) -> CommandResult {
+    let said = out.stderr.trim();
+    let said = if said.is_empty() {
+        out.stdout.trim()
+    } else {
+        said
+    };
+    let last: Vec<&str> = said.lines().rev().take(3).collect();
+    if last.is_empty() {
+        CommandResult::message("Done.")
+    } else {
+        CommandResult::message(last.into_iter().rev().collect::<Vec<_>>().join("\n"))
+    }
+}
+
+/// What a network command that failed said, and what to do when it couldn't sign in.
+fn reach_failure(out: &ToolOutput) -> CommandResult {
+    let mut text = failure(out);
+    if needs_sign_in(&out.stderr) {
+        text.push_str(
+            "\n\nSign in again from Terminal (git push, or gh auth login): Chita never \
+             keeps your passwords, it uses what git and your SSH agent already have.",
+        );
+    }
+    if out.stderr.contains("gpg failed") || out.stderr.contains("signing failed") {
+        text.push_str("\n\nSigning failed: GPG asks for its passphrase in its own window, not Chita\u{2019}s. Unlock the key from Terminal first, or sign with an SSH key.");
+    }
+    CommandResult::message(text)
 }
 
 /// Git couldn't sign in: a missing or expired credential, a locked key.
@@ -265,6 +277,30 @@ fn targets(argument: &CommandArgument) -> Vec<String> {
     } else {
         argument.rows.clone()
     }
+}
+
+/// A name the user typed (a branch, a tag), as git may take it: never something that
+/// reads as an option, nor what a ref name can't hold.
+fn plain_name(name: &str) -> Result<&str, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("A name is needed.".into());
+    }
+    if name.starts_with('-')
+        || name.contains("..")
+        || name.contains(char::is_whitespace)
+        || name
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
+        || name.ends_with('/')
+        || name.ends_with(".lock")
+        || name.contains("@{")
+    {
+        return Err(format!(
+            "\u{201C}{name}\u{201D} isn\u{2019}t a name git takes: no spaces, no leading dash, none of ~ ^ : ? * [ \\ or \u{201C}..\u{201D}."
+        ));
+    }
+    Ok(name)
 }
 
 pub fn run_command(argument: CommandArgument) -> CommandResult {
@@ -320,7 +356,7 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 )
                 .placeholder("What it is (optional)"),
             ),
-            Some(message) => plain(&["stash", "push", "-u", "-m", message]),
+            Some(message) => plain(&["stash", "push", "-u", "-m", message, "--", "."]),
         },
         "stash-pop" | "stash-apply" | "stash-drop" => {
             let Some(id) = targets.first() else {
@@ -351,7 +387,10 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 )
                 .placeholder("feature/name"),
             ),
-            Some(name) => plain(&["switch", "-c", name]),
+            Some(name) => match plain_name(name) {
+                Ok(name) => plain(&["switch", "-c", name]),
+                Err(why) => CommandResult::message(why),
+            },
         },
         "delete-branch" => match targets.first().and_then(|id| id.strip_prefix("local:")) {
             Some(name) => match git(&["branch", "-d", name]) {
@@ -391,7 +430,10 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 Prompt::line("New Branch Here", "Made from this commit, and checked out.", "Create")
                     .placeholder("feature/name"),
             ),
-            (Some(hash), Some(name)) => plain(&["switch", "-c", name, hash]),
+            (Some(hash), Some(name)) => match plain_name(name) {
+                Ok(name) => plain(&["switch", "-c", name, hash]),
+                Err(why) => CommandResult::message(why),
+            },
             (None, _) => CommandResult::message("Choose a commit first."),
         },
         "cherry-pick" => match targets.first() {
@@ -412,6 +454,10 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 .placeholder("v1.0"),
             ),
             Some(name) => {
+                let name = match plain_name(name) {
+                    Ok(name) => name,
+                    Err(why) => return CommandResult::message(why),
+                };
                 let mut args = vec!["tag", "-a", name, "-m", name];
                 if argument.command == "tag-here"
                     && let Some(hash) = targets.first()
@@ -435,6 +481,10 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 .placeholder("feature/name"),
             ),
             Some(branch) => {
+                let branch = match plain_name(branch) {
+                    Ok(branch) => branch,
+                    Err(why) => return CommandResult::message(why),
+                };
                 let folder = argument.folder.as_deref().unwrap_or("");
                 let name = folder.trim_end_matches('/').rsplit('/').next().unwrap_or("repo");
                 let leaf = branch.replace('/', "-");
@@ -502,7 +552,172 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
         "history" => show(&["log", "--oneline", "-n", "50"], &names, "No commits yet."),
         "fetch" => reach(&["fetch"]),
         "pull" => reach(&["pull"]),
-        "push" => reach(&["push"]),
+        "push" => push(),
+        "force-push" => reach(&["push", "--force-with-lease"]),
+        "rebase" => match targets.first().and_then(|id| id.split_once(':')) {
+            Some((_, name)) => plain(&["rebase", name]),
+            None => CommandResult::message("Choose a branch first."),
+        },
+        "file-history" => {
+            if names.is_empty() {
+                return CommandResult::message("Select a file first.");
+            }
+            let mut args = vec!["log", "--format=%h  %s  (%cr, %an)", "--follow", "-n", "100", "--"];
+            args.push(&names[0]);
+            match git_ok(&args) {
+                Ok(text) if text.trim().is_empty() => CommandResult::message("Not in any commit yet."),
+                Ok(text) => CommandResult {
+                    output: Some(text),
+                    title: Some(format!("History of {}", names[0])),
+                    ..Default::default()
+                },
+                Err(reason) => CommandResult::message(reason),
+            }
+        }
+        "clone" => match chita_ext_sdk::clone_repository() {
+            Ok(out) if out.succeeded() => CommandResult::message("Cloned."),
+            Ok(out) => reach_failure(&out),
+            Err(reason) if reason == "cancelled" => CommandResult::nothing(),
+            Err(reason) => CommandResult::message(reason),
+        },
+        "init" => {
+            if repository().is_some() {
+                return CommandResult::message("This folder is in a repository already.");
+            }
+            match git(&["init", "-q", "-b", "main"]) {
+                Ok(out) if out.succeeded() => CommandResult::message("A repository, on the branch main."),
+                Ok(out) => CommandResult::message(failure(&out)),
+                Err(reason) => CommandResult::message(reason),
+            }
+        }
+        "submodule-update" => {
+            let mut args = vec!["submodule", "update", "--init", "--recursive"];
+            if !targets.is_empty() {
+                args.push("--");
+                args.extend(names.iter().map(String::as_str));
+            }
+            match git(&args) {
+                Ok(out) if out.succeeded() => CommandResult::nothing(),
+                Ok(out) => reach_failure(&out),
+                Err(reason) => CommandResult::message(reason),
+            }
+        }
+        "track-moves" => {
+            // Chita moved or renamed items: what git tracked among them is staged as a
+            // rename (the old path's removal and the new path's addition together).
+            let mut staged = 0;
+            for m in &argument.moves {
+                let pair = self::names(folder, &[m.from.clone(), m.to.clone()]);
+                if pair.len() != 2 {
+                    continue;
+                }
+                let tracked = git(&["ls-files", "--error-unmatch", "--", &pair[0]])
+                    .is_ok_and(|out| out.succeeded());
+                if tracked && git(&["add", "-A", "--", &pair[0], &pair[1]]).is_ok_and(|out| out.succeeded()) {
+                    staged += 1;
+                }
+            }
+            let _ = staged;
+            CommandResult::nothing()
+        }
+        "flow-setup" => flow_setup(),
+        "flow-start-feature" | "flow-start-release" | "flow-start-hotfix" => {
+            let kind = match argument.command.as_str() {
+                "flow-start-feature" => Kind::Feature,
+                "flow-start-release" => Kind::Release,
+                _ => Kind::Hotfix,
+            };
+            match input {
+                None => CommandResult::prompt(
+                    Prompt::line(
+                        format!("Start a {}", kind.word()),
+                        format!("A branch from {}, checked out.", kind.base(&conventions())),
+                        "Start",
+                    )
+                    .placeholder(match kind {
+                        Kind::Feature => "name",
+                        Kind::Release | Kind::Hotfix => "1.2.0",
+                    }),
+                ),
+                Some(name) => match plain_name(name) {
+                    Ok(name) => flow_start(kind, name),
+                    Err(why) => CommandResult::message(why),
+                },
+            }
+        }
+        "flow-finish" => match targets.first().and_then(|id| id.strip_prefix("local:")) {
+            Some(name) => flow_finish(name),
+            None => CommandResult::message("Choose a branch first."),
+        },
+        "flow-publish" => match targets.first().and_then(|id| id.strip_prefix("local:")) {
+            Some(name) => reach(&["push", "-u", "origin", name]),
+            None => CommandResult::message("Choose a branch first."),
+        },
+        "flow-pull-merge" | "flow-pull-rebase" | "flow-pull-ff" => {
+            let (rebase, ff) = match argument.command.as_str() {
+                "flow-pull-rebase" => ("true", ""),
+                "flow-pull-ff" => ("false", "only"),
+                _ => ("false", ""),
+            };
+            let set = |key: &str, value: &str| -> Result<(), String> {
+                if value.is_empty() {
+                    // Unsetting a key that isn't there is fine too.
+                    let _ = git(&["config", "--local", "--unset", key]);
+                    Ok(())
+                } else {
+                    git_ok(&["config", "--local", key, value]).map(|_| ())
+                }
+            };
+            match set("pull.rebase", rebase).and_then(|()| set("pull.ff", ff)) {
+                Ok(()) => CommandResult::nothing(),
+                Err(reason) => CommandResult::message(reason),
+            }
+        }
+        "file-version" => match targets.first().and_then(|id| id.split_once('\u{1f}')) {
+            Some((hash, name)) => match git_ok(&["show", &format!("{hash}:{}", with_prefix(name))]) {
+                Ok(text) => CommandResult {
+                    output: Some(text),
+                    title: Some(format!("{name} at {}", hash.chars().take(7).collect::<String>())),
+                    ..Default::default()
+                },
+                Err(reason) => CommandResult::message(reason),
+            },
+            None => CommandResult::nothing(),
+        },
+        "file-restore" => match targets.first().and_then(|id| id.split_once('\u{1f}')) {
+            Some((hash, name)) => {
+                // What's there now is kept first, as Discard keeps things.
+                let keep = format!("{DISCARD_PREFIX}{name} before restoring {}", hash.chars().take(7).collect::<String>());
+                let _ = git(&["stash", "push", "-u", "-q", "-m", &keep, "--", name]);
+                plain(&["restore", &format!("--source={hash}"), "--", name])
+            }
+            None => CommandResult::message("Choose a version first."),
+        },
+        "file-restore-copy" => match targets.first().and_then(|id| id.split_once('\u{1f}')) {
+            Some((hash, name)) => match git_ok(&["show", &format!("{hash}:{}", with_prefix(name))]) {
+                Ok(text) => {
+                    let short: String = hash.chars().take(7).collect();
+                    let (stem, ext) = match name.rsplit_once('.') {
+                        Some((s, e)) if !s.is_empty() && !s.ends_with('/') => (s.to_owned(), format!(".{e}")),
+                        _ => (name.to_owned(), String::new()),
+                    };
+                    let copy = format!("{stem} ({short}){ext}");
+                    match chita_ext_sdk::write_file(&copy, text.as_bytes()) {
+                        Ok(()) => CommandResult::message(format!("Saved as {copy}.")),
+                        Err(reason) => CommandResult::message(reason),
+                    }
+                }
+                Err(reason) => CommandResult::message(reason),
+            },
+            None => CommandResult::message("Choose a version first."),
+        },
+        "flow-style-plain" | "flow-style-imperative" | "flow-style-conventional" => {
+            let style = &argument.command["flow-style-".len()..];
+            match git_ok(&["config", "--local", "chita.commits", style]) {
+                Ok(_) => CommandResult::nothing(),
+                Err(reason) => CommandResult::message(reason),
+            }
+        }
         "ignore" => ignore(&names, &targets, ".gitignore"),
         "ignore-local" => ignore(&names, &targets, ".git/info/exclude"),
         "ignore-ext" => {
@@ -529,14 +744,16 @@ pub fn run_command(argument: CommandArgument) -> CommandResult {
                 let current = chita_ext_sdk::read_file(".gitignore")
                     .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
                     .unwrap_or_default();
-                CommandResult::prompt(
-                    Prompt::line(
-                        ".gitignore",
-                        "One pattern per line: a name, /name for this folder only, name/ for a folder, *.ext for a kind of file, # for a note.",
-                        "Save",
-                    )
-                    .editor(current),
+                let mut prompt = Prompt::line(
+                    ".gitignore",
+                    "One pattern per line: a name, /name for this folder only, name/ for a folder, *.ext for a kind of file, # for a note. Insert adds a template at the end.",
+                    "Save",
                 )
+                .editor(current);
+                for (title, text) in templates::TEMPLATES {
+                    prompt = prompt.insert(*title, *text);
+                }
+                CommandResult::prompt(prompt)
             }
             Some(_) => {
                 let text = argument.input.unwrap_or_default();
@@ -610,13 +827,150 @@ fn commit(input: Option<&str>) -> CommandResult {
                     .placeholder("What changed, and why"),
             )
         }
-        Some(message) => match git(&["commit", "-m", message]) {
-            Ok(out) if out.succeeded() => {
-                CommandResult::message(out.stdout.lines().next().unwrap_or("Committed.").to_owned())
+        Some(message) => {
+            if let Some(problem) = commit_style().check(message) {
+                return CommandResult::prompt(
+                    Prompt::line("Commit", problem, "Commit")
+                        .placeholder("What changed, and why")
+                        .editor(message),
+                );
             }
-            Ok(out) => CommandResult::message(failure(&out)),
-            Err(reason) => CommandResult::message(reason),
-        },
+            match git(&["commit", "-m", message]) {
+                Ok(out) if out.succeeded() => CommandResult::message(
+                    out.stdout.lines().next().unwrap_or("Committed.").to_owned(),
+                ),
+                Ok(out) => CommandResult::message(failure(&out)),
+                Err(reason) => CommandResult::message(reason),
+            }
+        }
+    }
+}
+
+/// A name relative to the viewed folder, as a path from the repository's root.
+fn with_prefix(name: &str) -> String {
+    match git_ok(&["rev-parse", "--show-prefix"]) {
+        Ok(prefix) => format!("{}{name}", prefix.trim()),
+        Err(_) => name.to_owned(),
+    }
+}
+
+/// How Pull brings the upstream in.
+fn pull_style() -> PullStyle {
+    let rebase = git_ok(&["config", "--get", "pull.rebase"]).unwrap_or_default();
+    let ff = git_ok(&["config", "--get", "pull.ff"]).unwrap_or_default();
+    PullStyle::parse(&rebase, &ff)
+}
+
+/// The commit message convention the repository asks for.
+fn commit_style() -> CommitStyle {
+    git_ok(&["config", "--get", "chita.commits"])
+        .map(|v| CommitStyle::parse(&v))
+        .unwrap_or_default()
+}
+
+/// Pushes; a branch with no upstream yet gets one on origin.
+fn push() -> CommandResult {
+    match git(&["push"]) {
+        Ok(out) if !out.succeeded() && out.stderr.contains("has no upstream branch") => {
+            let branch = repository()
+                .and_then(|(s, _)| s.branch.map(|b| b.head))
+                .unwrap_or_default();
+            if branch.is_empty() || branch == "(detached)" {
+                return CommandResult::message(failure(&out));
+            }
+            reach(&["push", "-u", "origin", &branch])
+        }
+        Ok(out) if out.succeeded() => reach_said(&out),
+        Ok(out) => reach_failure(&out),
+        Err(reason) => CommandResult::message(reason),
+    }
+}
+
+/// The flow's conventions from the repository's configuration.
+fn conventions() -> Conventions {
+    let configured = git_ok(&["config", "--get-regexp", "^gitflow\\."]).unwrap_or_default();
+    let exists = |name: &str| {
+        git(&["rev-parse", "-q", "--verify", &format!("refs/heads/{name}")])
+            .is_ok_and(|o| o.succeeded())
+    };
+    let main = if exists("main") {
+        "main"
+    } else if exists("master") {
+        "master"
+    } else {
+        "main"
+    };
+    Conventions::parse(&configured, main)
+}
+
+/// Writes the flow's conventions into the repository, and makes the develop branch when
+/// it's missing.
+fn flow_setup() -> CommandResult {
+    let c = conventions();
+    for (key, value) in c.settings() {
+        if let Err(reason) = git_ok(&["config", "--local", key, &value]) {
+            return CommandResult::message(reason);
+        }
+    }
+    let develop_exists = git(&[
+        "rev-parse",
+        "-q",
+        "--verify",
+        &format!("refs/heads/{}", c.develop),
+    ])
+    .is_ok_and(|o| o.succeeded());
+    if !develop_exists && let Err(reason) = git_ok(&["branch", &c.develop, &c.master]) {
+        return CommandResult::message(reason);
+    }
+    CommandResult::nothing()
+}
+
+fn flow_start(kind: Kind, name: &str) -> CommandResult {
+    let c = conventions();
+    let branch = format!("{}{}", kind.prefix(&c), name);
+    plain(&["switch", "-c", &branch, kind.base(&c)])
+}
+
+/// Finishes a flow branch: a feature merges into develop; a release or a hotfix merges
+/// into master, is tagged, and merges into develop; the branch goes.
+fn flow_finish(name: &str) -> CommandResult {
+    let c = conventions();
+    let Some((kind, short)) = c.kind_of(name) else {
+        return CommandResult::message(format!(
+            "{name} isn't a feature, release or hotfix branch."
+        ));
+    };
+    let step = |args: &[&str]| -> Result<(), String> {
+        match git(args) {
+            Ok(out) if out.succeeded() => Ok(()),
+            Ok(out) => Err(format!(
+                "{}\n\nStopped at git {}.",
+                failure(&out),
+                args.join(" ")
+            )),
+            Err(reason) => Err(reason),
+        }
+    };
+    let result = (|| {
+        match kind {
+            Kind::Feature => {
+                step(&["switch", &c.develop])?;
+                step(&["merge", "--no-ff", "--no-edit", name])?;
+            }
+            Kind::Release | Kind::Hotfix => {
+                let tag = format!("{}{}", c.versiontag, short);
+                step(&["switch", &c.master])?;
+                step(&["merge", "--no-ff", "--no-edit", name])?;
+                step(&["tag", "-a", &tag, "-m", &tag])?;
+                step(&["switch", &c.develop])?;
+                step(&["merge", "--no-ff", "--no-edit", &c.master])?;
+            }
+        }
+        step(&["branch", "-d", name])
+    })();
+    match result {
+        Ok(()) => CommandResult::nothing(),
+        Err(message) => CommandResult::message(message),
     }
 }
 
@@ -670,9 +1024,13 @@ fn identity_missing() -> Option<Prompt> {
 
 /// Sets `key` for the repository from the prompt's answer, then goes on to `then`.
 fn identity(key: &str, input: Option<&str>, then: &str) -> CommandResult {
-    let Some(value) = input else {
+    let Some(value) = input.map(str::trim).filter(|v| !v.is_empty()) else {
         return CommandResult::nothing();
     };
+    // A value that reads as an option never reaches git as one.
+    if value.starts_with('-') || value.contains('\n') {
+        return CommandResult::message(format!("\u{201C}{value}\u{201D} can\u{2019}t be a {key}."));
+    }
     if let Err(reason) = git_ok(&["config", "--local", key, value]) {
         return CommandResult::message(reason);
     }
@@ -791,11 +1149,69 @@ fn add_ignore_lines(file: &str, lines: &[String]) -> CommandResult {
 
 // MARK: The column, the panel, the context, the screens
 
-pub fn column_texts(argument: ColumnArgument) -> Vec<String> {
-    match repository() {
-        Some((status, prefix)) => status.column(&argument.folder, &prefix, &argument.paths),
-        None => argument.paths.iter().map(|_| String::new()).collect(),
-    }
+/// The Git column: each item's state as a cell with a mark in its colour; ignored items
+/// dimmed; a submodule said so.
+pub fn column_cells(argument: ColumnArgument) -> Vec<ColumnCell> {
+    let Some((status, prefix)) = repository() else {
+        return argument
+            .paths
+            .iter()
+            .map(|_| ColumnCell::default())
+            .collect();
+    };
+    let submodules: Vec<String> = if chita_ext_sdk::read_file(".gitmodules").is_ok() {
+        git_ok(&["submodule", "status"])
+            .map(|out| Submodule::parse(&out).into_iter().map(|s| s.path).collect())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let folder = argument.folder.trim_end_matches('/');
+    status
+        .column(&argument.folder, &prefix, &argument.paths)
+        .into_iter()
+        .zip(&argument.paths)
+        .map(|(text, path)| {
+            let relative = path
+                .strip_prefix(folder)
+                .and_then(|r| r.strip_prefix('/'))
+                .map(|r| format!("{prefix}{r}"))
+                .unwrap_or_default();
+            if submodules.contains(&relative) {
+                return ColumnCell::text(if text.is_empty() {
+                    "Submodule".to_owned()
+                } else {
+                    format!("Submodule, {}", text.to_lowercase())
+                })
+                .symbol("square.stack.3d.up", "blue");
+            }
+            cell(text)
+        })
+        .collect()
+}
+
+/// A cell for a state's text.
+fn cell(text: String) -> ColumnCell {
+    let (symbol, color) = if text.is_empty() {
+        return ColumnCell::default();
+    } else if text == "Ignored" {
+        return ColumnCell::text(text).dim();
+    } else if text.starts_with("Conflict") {
+        ("exclamationmark.triangle.fill", "red")
+    } else if text.starts_with("Untracked") {
+        ("questionmark.circle", "gray")
+    } else if text.starts_with("Added") {
+        ("plus.circle.fill", "green")
+    } else if text.starts_with("Deleted") {
+        ("minus.circle.fill", "red")
+    } else if text.starts_with("Renamed") || text.starts_with("Copied") {
+        ("arrow.right.circle.fill", "blue")
+    } else if text.ends_with("changes") || text.ends_with("change") {
+        ("circle.fill", "orange")
+    } else {
+        ("pencil.circle.fill", "orange")
+    };
+    ColumnCell::text(text).symbol(symbol, color)
 }
 
 pub fn show_panel(_argument: PanelArgument) -> Panel {
@@ -885,11 +1301,69 @@ pub fn show_screen(argument: ScreenArgument) -> Screen {
             let more = commits.len() > limit;
             history::history(&commits[..commits.len().min(limit)], more)
         }
+        "file" => {
+            // The selected file's own history; one file at a time.
+            let names = names(argument.folder.as_deref(), &argument.selection);
+            let Some(name) = names.first() else {
+                return Screen::new().empty("Select a file in Files to see its versions.");
+            };
+            let commits = git_ok(&[
+                "log",
+                "--format=%H%x1f%h%x1f%P%x1f%an%x1f%cr%x1f%D%x1f%s",
+                "--follow",
+                "-n",
+                "200",
+                "--",
+                name,
+            ])
+            .map(|out| Commit::parse(&out))
+            .unwrap_or_default();
+            history::file_history(name, &commits)
+        }
         "worktrees" => {
             let list = git_ok(&["worktree", "list", "--porcelain"])
                 .map(|out| Worktree::parse(&out))
                 .unwrap_or_default();
-            history::worktrees(&list)
+            let mut screen = history::worktrees(&list);
+            if chita_ext_sdk::read_file(".gitmodules").is_ok() {
+                let root = root_of(argument.folder.as_deref().unwrap_or(""), &prefix);
+                let modules = git_ok(&["submodule", "status", "--recursive"])
+                    .map(|out| Submodule::parse(&out))
+                    .unwrap_or_default();
+                screen = screen.section(history::submodules(&modules, &root));
+                screen = screen.toolbar(
+                    chita_ext_sdk::Action::new("submodule-update", "Update All Submodules")
+                        .symbol("arrow.down.circle"),
+                );
+            }
+            screen
+        }
+        "flow" => {
+            let c = conventions();
+            let list = git_ok(&[
+                "for-each-ref",
+                "--format=%(refname:short)\t%(HEAD)\t%(upstream:short)\t%(upstream:track)\t%(committerdate:relative)\t%(subject)\t%(refname)",
+                "refs/heads",
+            ])
+            .map(|out| Branch::parse(&out))
+            .unwrap_or_default();
+            let branches: Vec<FlowBranch> = list
+                .iter()
+                .filter_map(|b| {
+                    let (kind, short) = c.kind_of(&b.name)?;
+                    Some(FlowBranch {
+                        kind,
+                        name: b.name.clone(),
+                        short: short.to_owned(),
+                        current: b.current,
+                        upstream: b.upstream.clone(),
+                        when: b.when.clone(),
+                        subject: b.subject.clone(),
+                    })
+                })
+                .collect();
+            let develop_exists = list.iter().any(|b| b.name == c.develop);
+            flow::flow(&c, &branches, commit_style(), develop_exists, pull_style())
         }
         other => Screen::new().empty(format!("The Git extension has no screen {other}.")),
     }
