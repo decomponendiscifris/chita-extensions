@@ -1,10 +1,10 @@
 {
-  "issued": "2026-11-06T11:41:51Z",
+  "issued": "2026-11-06T14:50:10Z",
   "extensions": [
     {
       "id": "it.urial.chita.git",
       "name": "Git",
-      "version": "0.7.0",
+      "version": "0.8.0",
       "author": "Chita",
       "description": "A repository as a place in Chita: a header with the branch and what changed, Changes with staging, conflicts and stashes, Branches and tags with checkout, merge, rebase and delete, History with the commit graph, Worktrees and submodules, Flow with feature, release and hotfix branches and the commit convention, the diff of what you select in the Inspector, a Git column, and commands to commit, fetch, pull, push, clone and keep .gitignore. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
       "categories": [
@@ -16,9 +16,9 @@
         "tool:git"
       ],
       "api": 1,
-      "url": "https://github.com/decomponendiscifris/chita-extensions/releases/download/it.urial.chita.git-0.7.0/it.urial.chita.git-0.7.0.chitaext",
-      "sha256": "70a8580fe7041d2c48cfefb44d9dcf2d794d616afee51625d6746fe8b8cf8146",
-      "size": 119562,
+      "url": "https://github.com/decomponendiscifris/chita-extensions/releases/download/it.urial.chita.git-0.8.0/it.urial.chita.git-0.8.0.chitaext",
+      "sha256": "8e699390a1c3fe85f836018110aaeaf4aeba4ef2c4eba9f812decc24fff8f924",
+      "size": 119565,
       "published": "2026-11-05T20:09:59Z",
       "repository": "https://github.com/decomponendiscifris/chita-extensions/tree/main/extensions/it.urial.chita.git",
       "commands": [
@@ -129,12 +129,12 @@
       "screenshots": [],
       "readme": "https://decomponendiscifris.github.io/chita-extensions/it.urial.chita.git/README.md",
       "changelog": "https://decomponendiscifris.github.io/chita-extensions/it.urial.chita.git/CHANGELOG.md",
-      "updated": "2026-11-06T11:41:51Z",
+      "updated": "2026-11-06T14:50:10Z",
       "contributors": [
         "decomponendiscifris"
       ]
     }
   ],
   "signer": "2d216e5e51f98d22f18ae66e5c3f3610694de877f83e04663861831048a76343",
-  "signature": "347f94ca5806e1b0a6a6094e8babaddd507aa9edabcbbc4b4aa50445ad4997d98706319958698ba16fe81f8cd16d055484b99c2800369dcaee516fd8662b9b02"
+  "signature": "f35cf3465d991d1adacf9d5db2605a10d3bae29d3238507bdc41c8d9c80e1238e6c1922a56eb6cab1f60728070d674694238173a77aea570e74d061bd43e220d"
 }
