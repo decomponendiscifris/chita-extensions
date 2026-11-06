@@ -28,6 +28,8 @@ ones a script can.
 
 ## How
 
+Where commands and columns show is up to your manifest: see [sdk/MANIFEST.md](sdk/MANIFEST.md).
+
 1. Fork, and make `extensions/<your id>/` with `.tool/chita ext new` (see the README).
    Write the extension on `sdk/rust` (`--sdk sdk/rust`) or `sdk/assemblyscript`.
 2. Run `scripts/check.sh extensions/<your id>` locally: it reads the manifest the way Chita
