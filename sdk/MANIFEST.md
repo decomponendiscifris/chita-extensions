@@ -3,6 +3,17 @@
 `extension.json` decides where your commands and columns appear. Every field here is
 optional, and older versions of Chita ignore the ones they don't know.
 
+## Descriptions in other languages
+
+The store shows `description` in English, and the one in the user's language when you give it
+under `descriptions`, keyed by language tag (`it`, `de`, `fr`, `es`, `ja`, `zh-Hans`,
+`pt-BR`, …), each up to 2,000 bytes. Chita picks the language it is itself shown in.
+
+```json
+"description": "Notes next to your files.",
+"descriptions": { "it": "Note accanto ai tuoi file.", "de": "Notizen neben deinen Dateien." }
+```
+
 ## Commands
 
 ```json

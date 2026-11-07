@@ -8,6 +8,9 @@ on:
   push:
     branches: [main]
     paths: [extensions/**, sdk/**, scripts/**, .github/workflows/publish.yml]
+  # Once a day: the download counts in the catalog (scripts/downloads.sh).
+  schedule:
+    - cron: "17 4 * * *"
   workflow_dispatch:
 
 permissions:
@@ -55,6 +58,7 @@ jobs:
           for dir in extensions/*/; do
             scripts/publish.sh "$dir" site
           done
+          scripts/downloads.sh site
           rm -f "$key"
       - name: Push the catalog
         run: |
