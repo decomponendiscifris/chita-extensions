@@ -1,12 +1,21 @@
 {
-  "issued": "2026-11-06T16:59:03Z",
+  "issued": "2026-11-07T21:23:55Z",
   "extensions": [
     {
       "id": "it.urial.chita.git",
       "name": "Git",
-      "version": "0.9.0",
+      "version": "0.9.1",
       "author": "Chita",
       "description": "A repository as a place in Chita: a header with the branch and what changed, Changes with staging, conflicts and stashes, Branches and tags with checkout, merge, rebase and delete, History with the commit graph, Worktrees and submodules, Flow with feature, release and hotfix branches and the commit convention, the diff of what you select in the Inspector, a Git column, and commands to commit, fetch, pull, push, clone and keep .gitignore. Runs the git on this Mac in the folder you're viewing, with the repository's own remotes.",
+      "descriptions": {
+        "de": "Ein Repository als Ort in Chita: eine Kopfzeile mit dem Branch und den Änderungen, Changes mit Staging, Konflikten und Stashes, Branches und Tags mit Checkout, Merge, Rebase und Löschen, History mit dem Commit-Graphen, Worktrees und Submodule, Flow mit Feature-, Release- und Hotfix-Branches und der Commit-Konvention, der Diff dessen, was du im Info-Bereich auswählst, eine Git-Spalte und Befehle für Commit, Fetch, Pull, Push, Clone und .gitignore. Verwendet das git dieses Mac im angezeigten Ordner, mit den Remotes des Repositorys.",
+        "es": "Un repositorio como un lugar en Chita: una cabecera con la rama y lo que ha cambiado, Changes con staging, conflictos y stashes, Branches y etiquetas con checkout, merge, rebase y eliminación, History con el gráfico de commits, Worktrees y submódulos, Flow con ramas feature, release y hotfix y la convención de commits, el diff de lo que seleccionas en el inspector, una columna Git y comandos para commit, fetch, pull, push, clone y .gitignore. Usa el git de este Mac en la carpeta que estás viendo, con los remotos del propio repositorio.",
+        "fr": "Un dépôt comme un lieu dans Chita : un en-tête avec la branche et ce qui a changé, Changes avec le staging, les conflits et les stashs, Branches et tags avec checkout, merge, rebase et suppression, History avec le graphe des commits, Worktrees et sous-modules, Flow avec les branches feature, release et hotfix et la convention de commit, le diff de ce que vous sélectionnez dans l’inspecteur, une colonne Git et des commandes pour commit, fetch, pull, push, clone et .gitignore. Utilise le git de ce Mac dans le dossier affiché, avec les dépôts distants du dépôt.",
+        "it": "Un repository come luogo in Chita: un’intestazione con il branch e cosa è cambiato, Changes con staging, conflitti e stash, Branches e tag con checkout, merge, rebase ed eliminazione, History con il grafico dei commit, Worktrees e submodule, Flow con i branch feature, release e hotfix e la convenzione dei commit, il diff di ciò che selezioni nell’inspector, una colonna Git e i comandi per commit, fetch, pull, push, clone e .gitignore. Usa il git di questo Mac nella cartella che stai guardando, con i remote del repository.",
+        "ja": "リポジトリをChitaの中の場所として扱います: ブランチと変更内容を示すヘッダ、ステージング・コンフリクト・スタッシュを扱うChanges、チェックアウト・マージ・リベース・削除ができるBranchesとタグ、コミットグラフ付きのHistory、WorktreesとSubmodules、feature・release・hotfixブランチとコミット規約を扱うFlow、インスペクタで選択したものの差分、Gitカラム、そしてcommit・fetch・pull・push・cloneと.gitignoreのためのコマンド。表示中のフォルダで、このMacのgitをリポジトリ自身のリモートとともに実行します。",
+        "pt-BR": "Um repositório como um lugar no Chita: um cabeçalho com o branch e o que mudou, Changes com staging, conflitos e stashes, Branches e tags com checkout, merge, rebase e exclusão, History com o grafo de commits, Worktrees e submódulos, Flow com branches feature, release e hotfix e a convenção de commits, o diff do que você seleciona no Inspetor, uma coluna Git e comandos para commit, fetch, pull, push, clone e .gitignore. Usa o git deste Mac na pasta que você está vendo, com os remotos do próprio repositório.",
+        "zh-Hans": "在Chita中把仓库当作一个位置：显示分支和更改内容的标题栏，含暂存、冲突和储藏的Changes，可检出、合并、变基和删除的Branches与标签，带提交图的History，Worktrees和子模块，含feature、release、hotfix分支和提交约定的Flow，检查器中所选内容的差异，Git分栏，以及用于commit、fetch、pull、push、clone和.gitignore的命令。在你正在查看的文件夹中，使用这台Mac上的git和仓库自己的远程仓库运行。"
+      },
       "categories": [
         "Developer Tools"
       ],
@@ -16,9 +25,9 @@
         "tool:git"
       ],
       "api": 1,
-      "url": "https://github.com/decomponendiscifris/chita-extensions/releases/download/it.urial.chita.git-0.9.0/it.urial.chita.git-0.9.0.chitaext",
-      "sha256": "299abaedd44c40275474b94b011f37c7606d6871e55503b165e943690a7f64b3",
-      "size": 119585,
+      "url": "https://github.com/decomponendiscifris/chita-extensions/releases/download/it.urial.chita.git-0.9.1/it.urial.chita.git-0.9.1.chitaext",
+      "sha256": "35237daaf7f9c93328098de75a1aaecaa5b5bb3f55537058326b0beda4d4a26f",
+      "size": 121512,
       "published": "2026-11-05T20:09:59Z",
       "repository": "https://github.com/decomponendiscifris/chita-extensions/tree/main/extensions/it.urial.chita.git",
       "commands": [
@@ -129,12 +138,13 @@
       "screenshots": [],
       "readme": "https://decomponendiscifris.github.io/chita-extensions/it.urial.chita.git/README.md",
       "changelog": "https://decomponendiscifris.github.io/chita-extensions/it.urial.chita.git/CHANGELOG.md",
-      "updated": "2026-11-06T16:59:03Z",
+      "updated": "2026-11-07T21:23:54Z",
       "contributors": [
         "decomponendiscifris"
-      ]
+      ],
+      "downloads": 15
     }
   ],
   "signer": "2d216e5e51f98d22f18ae66e5c3f3610694de877f83e04663861831048a76343",
-  "signature": "df7886ec6a762bd6c24846cc327456031cd549b4fdac84a7cddd18bf86bebd2a3ff646570f8bdc7ff2b56cef29934a689d55246c294e05973b6dafd640b6a804"
+  "signature": "54bdae89fa56fda8f6b46bd6d2bbc730b42aef1e6084a591307bdfdbbc3d9df1d766936f51c912d2fd056e5593b442e37f2802aa36c583dccc610daf97cf9708"
 }
