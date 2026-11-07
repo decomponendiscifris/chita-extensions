@@ -7,8 +7,8 @@
 #   . <(scripts/tool.sh --env)   print `CHITA=.../.tool/chita`
 set -euo pipefail
 
-version="0.1.2"
-sha256="04f3a5b742b07d3ed7aaf91a3866c87a11bdb3bcfba1dcf03addadd458f72850"
+version="0.1.3"
+sha256="d0e9f26dec0448a8269315bf204cc852150fa15e971417a74b36fb13c535eecc"
 root="$(cd "$(dirname "$0")/.." && pwd)"
 tool="$root/.tool/chita"
 url="https://github.com/decomponendiscifris/chita-extensions/releases/download/tools-$version/chita"
