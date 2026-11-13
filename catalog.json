@@ -1,5 +1,5 @@
 {
-  "issued": "2026-11-08T11:16:51Z",
+  "issued": "2026-11-13T12:13:14Z",
   "extensions": [
     {
       "id": "it.urial.chita.git",
@@ -142,9 +142,9 @@
       "contributors": [
         "decomponendiscifris"
       ],
-      "downloads": 18
+      "downloads": 19
     }
   ],
   "signer": "2d216e5e51f98d22f18ae66e5c3f3610694de877f83e04663861831048a76343",
-  "signature": "c5dc518f8c23d48fcf03157ec82e7d240edc6cb7e614d43154d2c54bfc01211b4cb4205baaa1d5dd98a161a1224272f329b0b4acfa6e5997d798f30b5c4b5204"
+  "signature": "8e2893467fa50884d18f6fec7171b71337e5fc1352829268e83fbf77ce6e034edf70ddeadfb663fa51bee8c52fd3494eb85493a4e4c154ec6c1b2084439d4d0d"
 }
