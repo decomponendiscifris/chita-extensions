@@ -44,8 +44,10 @@ licenses, ids, permissions and binaries are what the review holds you to.
 
 - `extensions/<id>/`: one folder per extension, named by its id, with `extension.json`, the
   source, a README and a CHANGELOG.
-- `sdk/rust`: the Rust SDK (`chita-ext-sdk`). `sdk/assemblyscript/chita.ts`: the
-  AssemblyScript SDK. Both come from Chita's repository, where they're developed.
+- `sdk/rust`: the Rust SDK (`chita-ext-sdk`, also on
+  [crates.io](https://crates.io/crates/chita-ext-sdk) for extensions kept elsewhere).
+  `sdk/assemblyscript/chita.ts`: the AssemblyScript SDK. Both come from Chita's repository,
+  where they're developed.
 - `scripts/`: what CI runs (`check.sh` on pull requests, `publish.sh` on merge) and
   `tool.sh`.
 - `.github/workflows/`: `check.yml` (pull requests: no secrets, fresh runners) and
