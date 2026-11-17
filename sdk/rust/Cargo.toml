@@ -4,8 +4,13 @@ description = "What a Chita extension is written with: the requests it can make,
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
-publish.workspace = true
+# Public, unlike the rest of the workspace: extension authors get it from crates.io.
+license = "MIT"
+publish = true
+repository = "https://github.com/decomponendiscifris/chita-extensions"
+readme = "README.md"
+keywords = ["chita", "extension", "file-manager", "wasm"]
+categories = ["wasm", "api-bindings"]
 
 [dependencies]
 serde = { workspace = true }
